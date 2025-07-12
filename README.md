@@ -33,6 +33,13 @@ A comprehensive React Native employee management system built with Expo and Supa
   - Address information
   - Account status and login history
 
+### 👤 Employee Dashboard
+- **Self-Service Profile** - Employees can view and edit their personal information
+- **Editable Fields** - Update contact details, personal data, and address
+- **Read-Only Protection** - System fields like role and department are protected
+- **Real-time Updates** - Changes saved instantly with validation
+- **Cross-platform** - Full functionality on mobile and web platforms
+
 ### 🏢 Department Management
 - **Department Structure** - Organized employee hierarchy
 - **Department-wise Filtering** - View employees by department
@@ -150,6 +157,41 @@ After running the database setup scripts, you'll have these test accounts:
 - **Web**: Mouse wheel or scrollbar
 - **Refresh**: Pull down to refresh (mobile) or use refresh control
 
+### 👤 Employee Dashboard Features
+
+#### Personal Profile Management
+- **Access**: Login as Employee user
+- **Features**:
+  - View complete personal profile
+  - Edit personal information
+  - Real-time profile updates
+  - Cross-platform compatibility
+
+#### Editable Fields
+Employees can modify the following information:
+- **Personal Info**: Full name, date of birth, nationality
+- **Contact Details**: Mobile numbers, personal/official emails
+- **Documents**: NID number, passport number
+- **Address**: Current residential address
+
+#### Read-Only Information
+The following fields are protected and cannot be modified by employees:
+- **System Fields**: User ID, login email, role
+- **Company Info**: Designation, department
+- **Account Status**: First login status, creation date
+
+#### Profile Editing Process
+1. **View Mode**: Default state showing all profile information
+2. **Edit Mode**: Click "Edit Profile" to enable editing
+3. **Save Changes**: Validate and save updates to database
+4. **Cancel Changes**: Discard modifications and return to view mode
+
+#### Security Features
+- **Field Restrictions**: Role-based editing permissions
+- **Data Validation**: Input validation for emails, phone numbers, dates
+- **Audit Trail**: All changes are logged for security
+- **Session Management**: Automatic logout and session handling
+
 ### 🔒 Role-Based Features
 
 #### Admin Capabilities
@@ -166,10 +208,11 @@ After running the database setup scripts, you'll have these test accounts:
 - Update employee information
 
 #### Employee Capabilities
-- View and update personal profile
-- Change password
-- View department information
-- Access personal reports
+- **Profile Management**: View and edit personal information
+- **Self-Service**: Update contact details, personal data, and address
+- **Data Security**: Access restricted to own profile only
+- **Real-time Updates**: Changes saved instantly to database
+- **Cross-platform**: Full functionality on mobile and web
 
 ## 🗂️ Project Structure
 
@@ -184,7 +227,8 @@ EcoNest/
 │   │   └── AppNavigator.js      # Navigation logic
 │   └── screens/
 │       ├── LoginScreen.js       # Login interface
-│       └── HRDashboard.js       # HR Dashboard
+│       ├── HRDashboard.js       # HR Dashboard
+│       └── EmployeeDashboard.js # Employee self-service dashboard
 ├── database_schema.sql          # Initial database schema
 ├── rbac_schema_fixed.sql        # RBAC implementation
 ├── test_add_users.sql          # Test data
