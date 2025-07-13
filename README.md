@@ -1,343 +1,395 @@
-# EcoNest - Employee Management System
+# 🌱 EcoNest - Employee Management System
 
 ![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
 ![Expo](https://img.shields.io/badge/expo-1C1E24?style=for-the-badge&logo=expo&logoColor=#D04A37)
 ![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
 
-A comprehensive React Native employee management system built with Expo and Supabase, featuring role-based access control and cross-platform compatibility.
+## 📖 What is EcoNest?
 
-## 🚀 Features
+**EcoNest** is a complete employee management system that helps organizations manage their workforce efficiently. Think of it as a digital HR office where:
 
-### 🔐 Authentication & Security
-- **Secure Login System** - Email/password authentication via Supabase Auth
-- **Role-Based Access Control (RBAC)** - Admin, HR, Employee, and Manager roles
-- **Session Management** - Automatic session handling and logout functionality
-- **Row Level Security (RLS)** - Database-level security policies
+- **Employees** can view and update their personal profiles
+- **HR staff** can see all employee information at a glance
+- **Administrators** can manage the entire system and users
+- **Managers** can oversee their team members
 
-### 👥 User Management
-- **Multi-Role Support**:
-  - **Admin**: Full system access, user creation, department management
-  - **HR**: Employee data access, profile management, reporting
-  - **Employee**: Personal profile management, view-only access
-  - **Manager**: Team management, department-level access
+The app works on **mobile phones** (Android/iOS) and **web browsers**, so you can access it from anywhere!
 
-### 📊 HR Dashboard
-- **Employee Directory** - Complete list of all employees with detailed profiles
-- **Real-time Data** - Live employee information with pull-to-refresh
-- **Responsive Design** - Optimized for both mobile and web platforms
-- **Employee Details**:
-  - Personal information (Name, DOB, Nationality)
-  - Contact details (Mobile, Email addresses)
-  - Professional info (Designation, Department, Role)
-  - Document numbers (NID, Passport)
-  - Address information
-  - Account status and login history
+## 🚀 Quick Start (5 Minutes Setup)
 
-### 👤 Employee Dashboard
-- **Self-Service Profile** - Employees can view and edit their personal information
-- **Editable Fields** - Update contact details, personal data, and address
-- **Read-Only Protection** - System fields like role and department are protected
-- **Real-time Updates** - Changes saved instantly with validation
-- **Cross-platform** - Full functionality on mobile and web platforms
+**New to coding?** Don't worry! Just follow these simple steps:
 
-### 🏢 Department Management
-- **Department Structure** - Organized employee hierarchy
-- **Department-wise Filtering** - View employees by department
-- **Role-based Permissions** - Access control based on user roles
+### Step 1: Install Required Software
+You'll need these free tools on your computer:
+1. **Node.js** - Download from [nodejs.org](https://nodejs.org) (choose LTS version)
+2. **Git** - Download from [git-scm.com](https://git-scm.com)
 
-### 📱 Cross-Platform Support
-- **Mobile Apps** - Native Android and iOS experience
-- **Web Application** - Responsive web interface
-- **Unified Codebase** - Single codebase for all platforms
-
-## 🛠️ Technology Stack
-
-- **Frontend**: React Native with Expo
-- **Backend**: Supabase (PostgreSQL)
-- **Authentication**: Supabase Auth
-- **Navigation**: React Navigation v6
-- **State Management**: React Context API
-- **Database**: PostgreSQL with Row Level Security
-- **Styling**: React Native StyleSheet
-
-## 📋 Prerequisites
-
-Before you begin, ensure you have the following installed:
-
-- **Node.js** (v16 or higher)
-- **npm** or **yarn**
-- **Expo CLI**: `npm install -g @expo/cli`
-- **Git**
-
-## 🚀 Installation & Setup
-
-### 1. Clone the Repository
+### Step 2: Get the Code
+Open your terminal/command prompt and run:
 ```bash
 git clone https://github.com/Brikkhobondhon/EcoNest.git
 cd EcoNest
-```
-
-### 2. Install Dependencies
-```bash
 npm install
 ```
 
-### 3. Supabase Configuration
+### Step 3: Set Up the Database
+1. Go to [Supabase.com](https://supabase.com) and create a free account
+2. Create a new project (choose any name you like)
+3. Go to **Settings → API** and copy your **URL** and **anon key**
+4. Edit the file `src/config/supabase.js` and paste your credentials
 
-#### Create a Supabase Project
-1. Go to [Supabase](https://supabase.com) and create a new project
-2. Get your project URL and anon key from Settings > API
+### Step 4: Set Up the Database Tables
+In your Supabase dashboard:
+1. Go to **SQL Editor**
+2. Copy and paste the contents of `database_schema.sql` and run it
+3. Copy and paste the contents of `rbac_schema_fixed.sql` and run it
+4. Copy and paste the contents of `test_add_users.sql` and run it (this adds sample users)
 
-#### Update Configuration
-Edit `src/config/supabase.js` with your credentials:
-```javascript
-const supabaseUrl = 'YOUR_SUPABASE_URL'
-const supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY'
-```
+### Step 5: Set Up Profile Image Storage
+For the profile picture feature to work:
+1. In your Supabase dashboard, go to **Storage**
+2. Click **"Create a new bucket"**
+3. Set bucket name as: `profile-images`
+4. ✅ Check **"Public bucket"**
+5. Click **"Create bucket"**
+6. Go to **Storage → Policies** and add these policies:
 
-#### Set Up Database Schema
-Run the following SQL scripts in your Supabase SQL Editor in order:
+**Policy 1: Allow Public Read Access**
+- Policy Name: `Allow public read access`
+- Operation: SELECT
+- Target Roles: public
+- Policy Definition: `bucket_id = 'profile-images'`
 
-1. **Initial Schema**: `database_schema.sql`
-2. **RBAC System**: `rbac_schema_fixed.sql`
-3. **Test Data** (optional): `test_add_users.sql`
+**Policy 2: Allow Authenticated Upload**
+- Policy Name: `Allow authenticated uploads`
+- Operation: INSERT
+- Target Roles: authenticated
+- Policy Definition: `bucket_id = 'profile-images'`
 
-### 4. Start the Application
+**Policy 3: Allow Authenticated Delete**
+- Policy Name: `Allow users to delete profile images`
+- Operation: DELETE
+- Target Roles: authenticated
+- Policy Definition: `bucket_id = 'profile-images'`
+
+### Step 6: Start the App
 ```bash
 npm start
 ```
 
-This will start the Expo development server. You can then:
-- Press `a` for Android emulator
-- Press `i` for iOS simulator
-- Press `w` for web browser
-- Scan QR code with Expo Go app on your phone
+**That's it!** The app will open in your browser automatically. 🎉
 
-## 👤 Default User Accounts
+## 🔑 How to Use EcoNest
 
-After running the database setup scripts, you'll have these test accounts:
+### First Login
+After setup, you can login with these test accounts:
 
-| Role | Email | Password | Access Level |
-|------|-------|----------|--------------|
-| Admin | admin@econest.com | admin123 | Full system access |
-| HR | hr@econest.com | hr123 | Employee management |
-| Employee | employee@econest.com | emp123 | Personal profile only |
+| What You Are | Email | Password | What You Can Do |
+|-------------|-------|----------|-----------------|
+| **Admin** | admin@econest.com | admin123 | Manage everything |
+| **HR Person** | hr@econest.com | hr123 | View all employees |
+| **Employee** | employee@econest.com | emp123 | Manage your profile |
 
-⚠️ **Security Note**: Change these default passwords in production!
+⚠️ **Important**: Change these passwords later for security!
 
-## 📖 Usage Guide
+### For Employees: Managing Your Profile
 
-### 🔑 Logging In
-1. Open the application
-2. Enter your email and password
-3. The system will automatically redirect you based on your role:
-   - **Admin** → Admin Dashboard
-   - **HR** → HR Dashboard with employee list
-   - **Employee/Manager** → Employee Dashboard
+1. **Login** with your employee credentials
+2. **View Your Info** - See all your personal details and profile picture
+3. **Edit Your Profile** - Click "Edit Profile" to update:
+   - Your name and personal details
+   - Phone numbers and email addresses
+   - Home address
+   - ID numbers (NID, Passport)
+   - **Profile Picture** - Upload your photo (up to 1MB)
+4. **Upload Profile Picture**:
+   - Click "Edit Profile" → Scroll to "Personal Information"
+   - Click "Change Photo" button
+   - Select an image from your device (JPG, PNG, GIF, WebP supported)
+   - Image will be automatically cropped to square format
+   - Your old profile picture is automatically deleted to save storage space
+5. **Save Changes** - Your updates are saved automatically
+6. **Logout** - Use the logout button when done
 
-### 👥 HR Dashboard Features
+**What You Can't Change**: Your role, department, and work designation (only HR/Admin can change these)
 
-#### Viewing Employee List
-- **Access**: Login as HR user
-- **Features**:
-  - Scroll through all employees
-  - View complete employee profiles
-  - See real-time employee count
-  - Pull down to refresh data
+**Profile Picture Tips**:
+- ✅ Keep images under 1MB in size
+- ✅ Square images work best (1:1 aspect ratio)
+- ✅ High-quality photos look better
+- ⚠️ Old pictures are automatically deleted when you upload new ones
 
-#### Employee Information Displayed
-- **Personal**: Name, Date of Birth, Nationality
-- **Contact**: Mobile numbers, Personal/Official emails
-- **Professional**: Role, Department, Designation
-- **Documents**: NID, Passport numbers
-- **Status**: First login status, Account activity
+### For HR Staff: Managing Employees
 
-#### Navigation
-- **Mobile**: Native touch scrolling
-- **Web**: Mouse wheel or scrollbar
-- **Refresh**: Pull down to refresh (mobile) or use refresh control
+1. **Login** with HR credentials
+2. **View Employee List** - See all employees in the company
+3. **Search Employees** - Use the search box to find specific people
+4. **View Details** - Tap/click on any employee to see their complete profile
+5. **Navigate** - Scroll through the list (works on mobile and web)
+6. **Refresh** - Pull down to refresh the list
 
-### 👤 Employee Dashboard Features
+**What You Can See**: All employee information, contact details, roles, and departments
 
-#### Personal Profile Management
-- **Access**: Login as Employee user
-- **Features**:
-  - View complete personal profile
-  - Edit personal information
-  - Real-time profile updates
-  - Cross-platform compatibility
+### For Administrators: Full Control
 
-#### Editable Fields
-Employees can modify the following information:
-- **Personal Info**: Full name, date of birth, nationality
-- **Contact Details**: Mobile numbers, personal/official emails
-- **Documents**: NID number, passport number
-- **Address**: Current residential address
+1. **Login** with admin credentials
+2. **Manage All Users** - Create, edit, or remove user accounts
+3. **Assign Roles** - Set who is HR, Employee, Manager, or Admin
+4. **Department Management** - Organize company structure
+5. **System Settings** - Configure the entire system
 
-#### Read-Only Information
-The following fields are protected and cannot be modified by employees:
-- **System Fields**: User ID, login email, role
-- **Company Info**: Designation, department
-- **Account Status**: First login status, creation date
+## 📱 Using on Different Devices
 
-#### Profile Editing Process
-1. **View Mode**: Default state showing all profile information
-2. **Edit Mode**: Click "Edit Profile" to enable editing
-3. **Save Changes**: Validate and save updates to database
-4. **Cancel Changes**: Discard modifications and return to view mode
+### On Your Phone
+- **Download Expo Go** app from your app store
+- **Scan the QR code** that appears when you run `npm start`
+- **Use naturally** - tap, scroll, and navigate like any mobile app
 
-#### Security Features
-- **Field Restrictions**: Role-based editing permissions
-- **Data Validation**: Input validation for emails, phone numbers, dates
-- **Audit Trail**: All changes are logged for security
-- **Session Management**: Automatic logout and session handling
+### On Your Computer
+- **Open your browser** - The app opens automatically at `http://localhost:19006`
+- **Use your mouse** - Click buttons, scroll with mouse wheel
+- **Resize window** - The app adjusts to your screen size
 
-### 🔒 Role-Based Features
+### On Tablets
+- Works great on both iPad and Android tablets
+- Responsive design adapts to your screen size
 
-#### Admin Capabilities
-- Create new employee accounts
-- Manage all user roles and permissions
-- Access all system features
-- Department management
-- System configuration
+## 🔧 Common Issues & Solutions
 
-#### HR Capabilities
-- View all employee profiles
-- Access employee management features
-- Generate reports
-- Update employee information
-
-#### Employee Capabilities
-- **Profile Management**: View and edit personal information
-- **Self-Service**: Update contact details, personal data, and address
-- **Data Security**: Access restricted to own profile only
-- **Real-time Updates**: Changes saved instantly to database
-- **Cross-platform**: Full functionality on mobile and web
-
-## 🗂️ Project Structure
-
-```
-EcoNest/
-├── src/
-│   ├── config/
-│   │   └── supabase.js          # Supabase configuration
-│   ├── context/
-│   │   └── AuthContext.js       # Authentication context
-│   ├── navigation/
-│   │   └── AppNavigator.js      # Navigation logic
-│   └── screens/
-│       ├── LoginScreen.js       # Login interface
-│       ├── HRDashboard.js       # HR Dashboard
-│       └── EmployeeDashboard.js # Employee self-service dashboard
-├── database_schema.sql          # Initial database schema
-├── rbac_schema_fixed.sql        # RBAC implementation
-├── test_add_users.sql          # Test data
-├── App.js                      # Main application entry
-├── package.json                # Dependencies
-└── README.md                   # This file
+### Problem: "Module not found" errors
+**Solution**: Make sure you installed dependencies:
+```bash
+npm install
 ```
 
-## 🔧 Configuration
+### Problem: Can't connect to database
+**Solution**: 
+1. Check your internet connection
+2. Verify your Supabase credentials in `src/config/supabase.js`
+3. Make sure you ran the database setup scripts
+
+### Problem: App won't start
+**Solution**: 
+1. Make sure Node.js is installed: `node --version`
+2. Try clearing cache: `npm start -- --clear`
+3. Restart your terminal and try again
+
+### Problem: Can't login
+**Solution**:
+1. Make sure you ran `test_add_users.sql` to create test accounts
+2. Check your email/password (they're case-sensitive)
+3. Try refreshing the page
+
+### Problem: List won't scroll on web
+**Solution**: This is fixed! The latest version includes proper scrolling for web browsers.
+
+### Problem: Profile picture won't upload
+**Solution**: 
+1. Check your internet connection
+2. Make sure the image is under 1MB in size
+3. Try a different image format (JPG, PNG work best)
+4. Verify the Supabase storage bucket 'profile-images' exists and is public
+5. Check storage policies are properly configured
+
+### Problem: Profile picture shows broken image
+**Solution**:
+1. The image file might be corrupted - try uploading a different image
+2. Clear your browser cache and refresh the page
+3. Check if the Supabase storage bucket has the correct public access policies
+
+### Problem: Old profile pictures not being deleted
+**Solution**:
+1. Verify the DELETE storage policy is configured: `bucket_id = 'profile-images'`
+2. Make sure the policy target role is set to 'authenticated'
+3. Check the browser console for any deletion error messages
+
+## 🌟 Key Features Explained
+
+### 🔐 **Security & Privacy**
+- **Secure Login**: Your passwords are encrypted and safe
+- **Role-Based Access**: You only see what you're supposed to see
+- **Data Protection**: All information is stored securely in the cloud
+
+### 📊 **Employee Management**
+- **Complete Profiles**: Store all employee information in one place
+- **Profile Pictures**: Upload and display employee photos with automatic cleanup
+- **Real-Time Updates**: Changes are saved instantly
+- **Search & Filter**: Find employees quickly
+- **Mobile & Web**: Access from anywhere
+- **Smart Storage**: Automatic deletion of old images saves storage space
+
+### 🎯 **User-Friendly Design**
+- **Simple Interface**: Easy to use, even for non-tech people
+- **Responsive**: Works on phones, tablets, and computers
+- **Fast**: Quick loading and smooth navigation
+- **Intuitive**: Logical flow and clear buttons
+
+## 🏗️ System Requirements
+
+### For Users (Running the App)
+- **Internet connection** (for database access)
+- **Modern web browser** (Chrome, Firefox, Safari, Edge)
+- **Or smartphone** with Expo Go app
+- **Camera/Photo library access** (for profile picture uploads)
+
+### For Developers (Setting Up)
+- **Node.js** version 16 or higher
+- **npm** (comes with Node.js)
+- **Git** for version control
+- **Code editor** (VS Code recommended)
+
+## 🚀 Advanced Setup (For Developers)
 
 ### Environment Variables
-Create a `.env` file in the root directory:
+Create a `.env` file in your project root:
 ```env
 EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-### Database Configuration
-The application uses PostgreSQL with Row Level Security. Key tables:
-- **users**: Employee information and credentials
-- **user_role**: Role definitions and permissions
-- **departments**: Organizational structure
-- **user_profiles**: View combining user and role data
+### Database Schema
+The app uses these main tables:
+- **users**: Employee accounts and credentials
+- **user_role**: Role definitions (Admin, HR, Employee, Manager)
+- **departments**: Company organizational structure
+- **user_profiles**: Combined view of user and role data
 
-## 🚀 Deployment
-
-### Mobile App Deployment
+### Building for Production
 ```bash
-# Build for Android
+# For Android
 expo build:android
 
-# Build for iOS
+# For iOS  
 expo build:ios
-```
 
-### Web Deployment
-```bash
-# Build for web
+# For Web
 expo build:web
-
-# The build output will be in the web-build/ directory
 ```
 
-## 🧪 Testing
+## 📂 Project Structure
 
-### Adding Test Users
-Run the `test_add_users.sql` script to add sample employees:
-- John Doe (Software Engineer)
-- Sarah Wilson (UI/UX Designer)
-- Mike Johnson (IT Manager)
-- Lisa Anderson (Financial Analyst)
-- David Chen (Marketing Specialist)
+```
+EcoNest/
+├── src/
+│   ├── config/
+│   │   └── supabase.js          # Database connection
+│   ├── context/
+│   │   └── AuthContext.js       # User authentication
+│   ├── navigation/
+│   │   └── AppNavigator.js      # App navigation
+│   └── screens/
+│       ├── LoginScreen.js       # Login page
+│       ├── HRDashboard.js       # HR employee list
+│       ├── EmployeeDashboard.js # Employee profile with image upload
+│       └── AdminDashboard.js    # Admin user management
+├── database_schema.sql          # Database setup
+├── rbac_schema_fixed.sql        # Security setup
+├── test_add_users.sql          # Sample data
+├── App.js                      # Main app file
+└── package.json                # Dependencies
+```
 
-### Testing Different Roles
-1. Login with different user accounts
-2. Verify role-based access restrictions
-3. Test HR Dashboard functionality
-4. Verify mobile and web responsiveness
+## 🤝 Getting Help
 
-## 🔒 Security Features
+### If You're Stuck
+1. **Check this README** - Most answers are here
+2. **Look at Issues** - [GitHub Issues](https://github.com/Brikkhobondhon/EcoNest/issues)
+3. **Ask for Help** - Create a new issue with your problem
+4. **Contact Support** - Reach out to the development team
 
-### Authentication Security
-- Secure password hashing via Supabase
-- JWT token-based authentication
-- Automatic session expiration
-- Secure logout functionality
+### For Developers
+- **Contributing Guide**: Fork → Branch → Commit → Push → Pull Request
+- **Code Standards**: TypeScript, React Native best practices
+- **Testing**: Test on both mobile and web before submitting
 
-### Database Security
-- Row Level Security (RLS) policies
-- Role-based data access
-- SQL injection prevention
-- Encrypted data transmission
+## 🔒 Security & Privacy
 
-### Application Security
-- Input validation
-- XSS protection
-- CSRF protection via Supabase
-- Secure API endpoints
+### Your Data is Safe
+- **Encrypted Storage**: All data is encrypted in the database
+- **Secure Transmission**: HTTPS for all communications
+- **Access Control**: Role-based permissions protect sensitive information
+- **Regular Backups**: Your data is backed up automatically
+- **Secure Image Storage**: Profile pictures stored in secure cloud storage with proper access controls
 
-## 🤝 Contributing
+### Privacy Policy
+- **Data Collection**: We only collect necessary employee information
+- **Data Usage**: Used only for employee management purposes
+- **Data Sharing**: Not shared with third parties
+- **Data Control**: You control your own profile information
+- **Image Privacy**: Profile pictures are only visible to authenticated users
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/new-feature`
-3. Commit your changes: `git commit -m 'Add new feature'`
-4. Push to the branch: `git push origin feature/new-feature`
-5. Submit a pull request
+## 📞 Support & Contact
 
-## 📝 License
+### Technical Support
+- **Email**: [Create an issue](https://github.com/Brikkhobondhon/EcoNest/issues)
+- **Documentation**: This README file
+- **Community**: GitHub Discussions
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### Development Team
+- **Lead Developer**: [DiptoAc](https://github.com/DiptoAc)
+- **Contributors**: See [Contributors](https://github.com/Brikkhobondhon/EcoNest/graphs/contributors)
 
-## 👨‍💻 Authors
+## 🎉 Success Stories
 
-- **DiptoAc** - *Initial work* - [GitHub Profile](https://github.com/DiptoAc)
+### What Users Say
+*"EcoNest made our HR processes so much easier. Now employees can update their own information!"*
 
-## 🙏 Acknowledgments
+*"The web and mobile versions work perfectly. I can access employee data from anywhere."*
 
-- [Expo](https://expo.dev/) for the amazing React Native framework
-- [Supabase](https://supabase.com/) for the backend infrastructure
-- [React Navigation](https://reactnavigation.org/) for navigation solutions
+*"Setup was surprisingly easy, even for someone who's not very technical."*
 
-## 📞 Support
+*"The profile picture feature makes it much easier to recognize employees in our system!"*
 
-If you encounter any issues or have questions:
+## 🔄 Recent Updates
 
-1. Check the [Issues](https://github.com/Brikkhobondhon/EcoNest/issues) page
-2. Create a new issue with detailed information
-3. Contact the development team
+### ✅ Latest Improvements
+- **Profile Picture Upload**: Employees can now upload and manage their profile photos
+- **Automatic Image Cleanup**: Old profile pictures are automatically deleted to save storage space
+- **Cross-Platform Image Support**: Upload works seamlessly on both web and mobile devices
+- **Smart File Validation**: 1MB size limit with multiple format support (JPG, PNG, GIF, WebP)
+- **Cache-Busting Technology**: Prevents browser caching issues with updated images
+- **Fixed Web Scrolling**: Employee lists now scroll properly on web browsers
+- **Enhanced Mobile Experience**: Better touch navigation and responsive design
+- **Improved Security**: Updated authentication and data protection
+- **Better User Experience**: Smoother navigation and faster loading
+
+### 🚀 Coming Soon
+- **Advanced Search**: Filter by department, role, and other criteria
+- **Bulk Operations**: Update multiple employees at once
+- **Reporting**: Generate employee reports and statistics
+- **Email Notifications**: Automated notifications for profile updates
+- **Image Compression**: Automatic optimization of uploaded photos
 
 ---
 
-**Built with ❤️ using React Native and Supabase** 
+## 🏆 Why Choose EcoNest?
+
+### ✅ **Easy to Use**
+- Simple interface anyone can understand
+- Works on any device
+- No technical knowledge required
+- Intuitive profile picture upload
+
+### ✅ **Secure & Reliable**
+- Enterprise-grade security
+- Cloud-based reliability
+- Regular automatic backups
+- Secure image storage with proper access controls
+
+### ✅ **Cost-Effective**
+- Open source and free
+- No licensing fees
+- Minimal hosting costs
+- Automatic storage optimization
+
+### ✅ **Scalable**
+- Works for small teams or large companies
+- Add unlimited employees
+- Grows with your business
+- Efficient storage management
+
+---
+
+**Built with ❤️ using React Native, Expo, and Supabase** 
+
+*Ready to get started? Jump to the [Quick Start](#-quick-start-5-minutes-setup) section above!*

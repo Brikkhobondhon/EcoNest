@@ -5,50 +5,11 @@ import { View, Text, ActivityIndicator } from 'react-native';
 import LoginScreen from '../screens/LoginScreen';
 import HRDashboard from '../screens/HRDashboard';
 import EmployeeDashboard from '../screens/EmployeeDashboard';
+import AdminDashboard from '../screens/AdminDashboard';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
 
-function AdminDashboard() {
-  const { user, signOut } = useAuth();
-  const [userProfile, setUserProfile] = useState(null);
-  
-  useEffect(() => {
-    fetchUserProfile();
-  }, []);
 
-  const fetchUserProfile = async () => {
-    if (user) {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('email', user.email)
-        .single();
-      
-      if (!error && data) {
-        setUserProfile(data);
-      }
-    }
-  };
-  
-  return (
-    <View style={{flex:1,justifyContent:'center',alignItems:'center', padding: 20}}>
-      <Text style={{fontSize: 24, fontWeight: 'bold', marginBottom: 10}}>Admin Dashboard</Text>
-      <Text style={{marginBottom: 20, color: '#666'}}>Welcome to EcoNest Admin Panel</Text>
-      <Text style={{marginBottom: 10, fontSize: 16}}>Email: {user?.email}</Text>
-      {userProfile && (
-        <>
-          <Text style={{marginBottom: 10, fontSize: 16}}>Name: {userProfile.name}</Text>
-          <Text style={{marginBottom: 10, fontSize: 16}}>Role: {userProfile.role_name}</Text>
-          <Text style={{marginBottom: 10, fontSize: 16}}>Department: {userProfile.department_name}</Text>
-          <Text style={{marginBottom: 20, fontSize: 16}}>User ID: {userProfile.user_id}</Text>
-        </>
-      )}
-      <View style={{backgroundColor: '#007AFF', padding: 10, borderRadius: 5}}>
-        <Text style={{color: 'white'}} onPress={signOut}>Logout</Text>
-      </View>
-    </View>
-  );
-}
 
 // EmployeeDashboard component moved to separate file
 
