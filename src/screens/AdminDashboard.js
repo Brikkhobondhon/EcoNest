@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -6,299 +6,296 @@ import {
   StyleSheet, 
   ActivityIndicator, 
   TouchableOpacity, 
-  TextInput,
   Alert,
-  Platform,
   Modal,
-  SafeAreaView
+  FlatList,
+  TextInput,
+  Platform
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
+import { ProfileEditor } from '../utils/profileEditor';
+import { ProfileForm } from '../components/ProfileForm';
 
 export default function AdminDashboard() {
   const { user, signOut } = useAuth();
-  const [employees, setEmployees] = useState([]);
-  const [filteredEmployees, setFilteredEmployees] = useState([]);
+  const [adminProfile, setAdminProfile] = useState(null);
+  const [allUsers, setAllUsers] = useState([]);
+  const [filteredUsers, setFilteredUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
   const [editing, setEditing] = useState(false);
+  const [editedProfile, setEditedProfile] = useState({});
   const [saving, setSaving] = useState(false);
-  const [editedEmployee, setEditedEmployee] = useState({});
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [error, setError] = useState(null);
+  const [debugInfo, setDebugInfo] = useState([]);
+
+  // Add debug logging
+  const addDebugInfo = (message) => {
+    console.log('AdminDashboard Debug:', message);
+    setDebugInfo(prev => [...prev, `${new Date().toLocaleTimeString()}: ${message}`]);
+  };
 
   useEffect(() => {
-    fetchEmployees();
-  }, []);
+    addDebugInfo('AdminDashboard mounted');
+    addDebugInfo(`User: ${user?.email}`);
+    
+    if (user) {
+      fetchAdminProfile();
+      fetchAllUsers();
+    } else {
+      setError('No user found');
+      setLoading(false);
+    }
+  }, [user]);
 
+  // Filter users based on search query
   useEffect(() => {
-    filterEmployees();
-  }, [searchQuery, employees]);
+    if (!searchQuery) {
+      setFilteredUsers(allUsers);
+    } else {
+      const filtered = allUsers.filter(user =>
+        user.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        user.role_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        user.role?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredUsers(filtered);
+    }
+  }, [searchQuery, allUsers]);
 
-  const fetchEmployees = async () => {
+  const fetchAdminProfile = async () => {
     try {
+      addDebugInfo('Fetching admin profile...');
+      
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('email', user.email)
+        .single();
+      
+      if (error) {
+        addDebugInfo(`Error fetching admin profile: ${error.message}`);
+        
+        // Try alternative table if user_profiles doesn't exist
+        addDebugInfo('Trying users table...');
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', user.email)
+          .single();
+          
+        if (userError) {
+          addDebugInfo(`Error fetching from users table: ${userError.message}`);
+          setError(`Database error: ${userError.message}`);
+        } else {
+          addDebugInfo('Successfully fetched from users table');
+          setAdminProfile(userData);
+        }
+      } else {
+        addDebugInfo('Successfully fetched admin profile from user_profiles');
+        setAdminProfile(data);
+      }
+    } catch (error) {
+      addDebugInfo(`Catch error in fetchAdminProfile: ${error.message}`);
+      setError(`Failed to fetch admin profile: ${error.message}`);
+    }
+  };
+
+  const fetchAllUsers = async () => {
+    try {
+      addDebugInfo('Fetching all users...');
       setLoading(true);
+      
       const { data, error } = await supabase
         .from('user_profiles')
         .select('*')
         .order('name', { ascending: true });
       
       if (error) {
-        console.error('Error fetching employees:', error);
-        Alert.alert('Error', 'Failed to fetch employee data');
+        addDebugInfo(`Error fetching from user_profiles: ${error.message}`);
+        
+        // Try users table
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .order('name', { ascending: true });
+          
+        if (userError) {
+          addDebugInfo(`Error fetching from users table: ${userError.message}`);
+          setError(`Failed to fetch users: ${userError.message}`);
+        } else {
+          addDebugInfo(`Successfully fetched ${userData.length} users from users table`);
+          setAllUsers(userData || []);
+        }
       } else {
-        setEmployees(data || []);
-        setFilteredEmployees(data || []);
+        addDebugInfo(`Successfully fetched ${data.length} users from user_profiles`);
+        setAllUsers(data || []);
       }
     } catch (error) {
-      console.error('Error in fetchEmployees:', error);
-      Alert.alert('Error', 'Failed to fetch employee data');
+      addDebugInfo(`Catch error in fetchAllUsers: ${error.message}`);
+      setError(`Failed to fetch users: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const filterEmployees = useCallback(() => {
-    if (!searchQuery.trim()) {
-      setFilteredEmployees(employees);
-      return;
-    }
-
-    const query = searchQuery.toLowerCase();
-    const filtered = employees.filter(employee => 
-      employee.user_id?.toLowerCase().includes(query) ||
-      employee.name?.toLowerCase().includes(query)
-    );
-    setFilteredEmployees(filtered);
-  }, [searchQuery, employees]);
-
-  const openEmployeeDetails = (employee) => {
-    setSelectedEmployee(employee);
-    setEditedEmployee({ ...employee });
-    setIsModalVisible(true);
-    setEditing(false);
+  const handleUserSelect = (user) => {
+    setSelectedUser(user);
+    setEditedProfile(user);
+    setShowUserModal(true);
   };
 
-  const closeModal = () => {
-    setIsModalVisible(false);
-    setSelectedEmployee(null);
-    setEditedEmployee({});
-    setEditing(false);
-  };
-
-  const handleEdit = () => {
-    setEditedEmployee({ ...selectedEmployee });
+  const handleEditUser = () => {
     setEditing(true);
   };
 
-  const handleCancel = () => {
-    setEditedEmployee({ ...selectedEmployee });
+  const handleCancelEdit = () => {
+    setEditedProfile(selectedUser);
     setEditing(false);
   };
 
-  const handleInputChange = useCallback((field, value) => {
-    setEditedEmployee(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  }, []);
+  const handleSaveUser = async () => {
+    if (!selectedUser || !adminProfile) return;
 
-  const handleSave = async () => {
+    setSaving(true);
+    
     try {
-      setSaving(true);
-      
-      // Validate required fields
-      if (!editedEmployee.name || !editedEmployee.name.trim()) {
-        Alert.alert('Validation Error', 'Name is required');
-        return;
-      }
+      const adminRole = adminProfile.role_name || adminProfile.role || 'admin';
+      const isOwnProfile = selectedUser?.id === adminProfile?.id;
 
-      // Prepare update data
-      const updateData = {
-        name: editedEmployee.name?.trim(),
-        personal_email: editedEmployee.personal_email?.trim() || null,
-        official_email: editedEmployee.official_email?.trim() || null,
-        mobile_no: editedEmployee.mobile_no?.trim() || null,
-        secondary_mobile_no: editedEmployee.secondary_mobile_no?.trim() || null,
-        current_address: editedEmployee.current_address?.trim() || null,
-        date_of_birth: editedEmployee.date_of_birth || null,
-        nationality: editedEmployee.nationality?.trim() || null,
-        nid_no: editedEmployee.nid_no?.trim() || null,
-        passport_no: editedEmployee.passport_no?.trim() || null,
-        designation: editedEmployee.designation?.trim() || null,
-        updated_at: new Date().toISOString()
-      };
-
-      console.log('Updating employee:', editedEmployee.user_id, updateData);
-
-      // Try multiple update strategies to ensure save works (same as EmployeeDashboard)
-      let result = null;
-      let updateMethod = '';
-
-      // Strategy 1: Update by email (most reliable)
-      if (editedEmployee.email) {
-        console.log('Attempting update by email:', editedEmployee.email);
-        result = await supabase
-          .from('users')
-          .update(updateData)
-          .eq('email', editedEmployee.email)
-          .select();
-        updateMethod = 'email';
-      }
-
-      // Strategy 2: Update by user_id if email fails
-      if (result?.error && editedEmployee.user_id) {
-        console.log('Email update failed, trying user_id:', editedEmployee.user_id);
-        result = await supabase
-          .from('users')
-          .update(updateData)
-          .eq('user_id', editedEmployee.user_id)
-          .select();
-        updateMethod = 'user_id';
-      }
-
-      // Strategy 3: Update by id if previous methods fail
-      if (result?.error && editedEmployee.id) {
-        console.log('Previous updates failed, trying id:', editedEmployee.id);
-        result = await supabase
-          .from('users')
-          .update(updateData)
-          .eq('id', editedEmployee.id)
-          .select();
-        updateMethod = 'id';
-      }
-
-      console.log(`Update result (${updateMethod}):`, result);
-
-      if (result?.error) {
-        console.error('All update methods failed:', result.error);
-        
-        // Try the custom SQL function as last resort
-        console.log('Attempting custom SQL function update...');
-        const { data: sqlResult, error: sqlError } = await supabase.rpc('update_user_profile', {
-          user_email: editedEmployee.email,
-          profile_data: updateData
-        });
-        
-        if (sqlError) {
-          console.error('SQL function also failed:', sqlError);
-          Alert.alert('Error', `Failed to update employee: ${result.error.message}\n\nPlease check your internet connection and try again.`);
-          return;
-        } else {
-          console.log('SQL function succeeded:', sqlResult);
-          if (sqlResult.success) {
-            result = { data: [sqlResult.data], error: null };
-          } else {
-            Alert.alert('Error', `SQL function failed: ${sqlResult.error}`);
-            return;
-          }
+      // Use the common ProfileEditor to save the profile
+      const result = await ProfileEditor.saveProfile({
+        originalProfile: selectedUser,
+        editedProfile: editedProfile,
+        currentUserRole: adminRole,
+        isOwnProfile: isOwnProfile,
+        onSuccess: (updatedProfile) => {
+          // Update selected user
+          setSelectedUser(updatedProfile);
+          setEditedProfile(updatedProfile);
+          setEditing(false);
+          
+          // Update user in the list
+          setAllUsers(prevUsers => 
+            prevUsers.map(u => 
+              u.id === updatedProfile.id ? updatedProfile : u
+            )
+          );
+          
+          // Refresh the full user list
+          setTimeout(() => {
+            fetchAllUsers();
+          }, 1000);
+        },
+        onError: (error) => {
+          console.error('Error saving user:', error);
+          // Error handling is done in ProfileEditor
         }
+      });
+
+      // Log the result for debugging
+      if (result.success) {
+        console.log('Admin successfully updated user:', result.updatedFields);
       }
 
-      if (result?.data && result.data.length > 0) {
-        console.log('Employee updated successfully:', result.data[0]);
-        
-        Alert.alert('Success', 'Employee updated successfully!');
-        
-        // Update local state
-        const updatedEmployee = { ...selectedEmployee, ...updateData };
-        setSelectedEmployee(updatedEmployee);
-        setEditedEmployee(updatedEmployee);
-        setEditing(false);
-        
-        // Refresh employee list
-        await fetchEmployees();
-        
-      } else {
-        console.warn('No data returned from update operation');
-        Alert.alert('Warning', 'Update may have failed. Please refresh to check if changes were saved.');
-        
-        // Still exit edit mode
-        setEditing(false);
-        
-        // Refresh employee list
-        await fetchEmployees();
-      }
     } catch (error) {
-      console.error('Error in handleSave:', error);
-      Alert.alert('Error', `Failed to update employee: ${error.message}`);
+      console.error('Unexpected error in handleSaveUser:', error);
+      Alert.alert('Error', 'An unexpected error occurred while saving the user profile.');
     } finally {
       setSaving(false);
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'Not provided';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+  const handleDeleteUser = async (userId) => {
+    if (!userId) {
+      Alert.alert('Error', 'Cannot delete user: Invalid user ID');
+      return;
+    }
+
+    Alert.alert(
+      'Confirm Delete',
+      'Are you sure you want to delete this user? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Use the same table that exists
+              const { error } = await supabase
+                .from('user_profiles')
+                .delete()
+                .eq('id', userId);
+
+              if (error) {
+                console.error('Error deleting user:', error);
+                Alert.alert('Error', 'Failed to delete user');
+              } else {
+                Alert.alert('Success', 'User deleted successfully');
+                setShowUserModal(false);
+                fetchAllUsers();
+              }
+            } catch (error) {
+              console.error('Error in handleDeleteUser:', error);
+              Alert.alert('Error', 'Failed to delete user');
+            }
+          }
+        }
+      ]
+    );
   };
 
-  const formatDateForInput = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toISOString().split('T')[0];
+
+
+
+
+  const handleInputChange = (field, value) => {
+    setEditedProfile(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
-  const EmployeeCard = ({ employee }) => (
-    <TouchableOpacity 
-      style={styles.employeeCard} 
-      onPress={() => openEmployeeDetails(employee)}
-    >
-      <View style={styles.employeeCardContent}>
-        <View style={styles.employeeMainInfo}>
-          <Text style={styles.employeeName}>{employee.name}</Text>
-          <Text style={styles.employeeId}>ID: {employee.user_id}</Text>
-          <Text style={styles.employeeDesignation}>{employee.designation}</Text>
-        </View>
-        <View style={styles.employeeSecondaryInfo}>
-          <Text style={styles.employeeDepartment}>{employee.department_name}</Text>
-          <Text style={styles.employeeRole}>{employee.role_name}</Text>
-          <Text style={styles.employeeEmail}>{employee.email}</Text>
-        </View>
+  // Error boundary
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorTitle}>Admin Dashboard Error</Text>
+        <Text style={styles.errorMessage}>Error: {error}</Text>
+        <Text style={styles.errorMessage}>User: {user?.email}</Text>
+        
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={() => {
+            setError(null);
+            setLoading(true);
+            setDebugInfo([]);
+            fetchAdminProfile();
+            fetchAllUsers();
+          }}
+        >
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.logoutButton}
+          onPress={signOut}
+        >
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
       </View>
-      <View style={styles.employeeCardArrow}>
-        <Text style={styles.arrowText}>›</Text>
-      </View>
-    </TouchableOpacity>
-  );
-
-  const EditableField = useCallback(({ label, value, onChangeText, placeholder, multiline = false, keyboardType = 'default', fieldKey }) => (
-    <View style={styles.fieldContainer}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        key={fieldKey}
-        style={[styles.input, multiline && styles.multilineInput]}
-        value={value || ''}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        multiline={multiline}
-        keyboardType={keyboardType}
-        editable={!saving}
-        autoCorrect={false}
-        autoCapitalize="none"
-        blurOnSubmit={!multiline}
-      />
-    </View>
-  ), [saving]);
-
-  const ReadOnlyField = ({ label, value }) => (
-    <View style={styles.fieldContainer}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <View style={[styles.input, styles.readOnlyInput]}>
-        <Text style={styles.readOnlyText}>{value || 'Not provided'}</Text>
-      </View>
-    </View>
-  );
+    );
+  }
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Loading employees...</Text>
+        <ActivityIndicator size="large" color="#4a90e2" />
+        <Text style={styles.loadingText}>Loading admin dashboard...</Text>
       </View>
     );
   }
@@ -307,272 +304,172 @@ export default function AdminDashboard() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Admin Dashboard</Text>
-          <Text style={styles.headerSubtitle}>Employee Management</Text>
-        </View>
-        <TouchableOpacity style={styles.logoutButton} onPress={signOut}>
+        <Text style={styles.title}>Admin Dashboard</Text>
+        <TouchableOpacity 
+          style={styles.logoutButton}
+          onPress={signOut}
+        >
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by User ID or Name..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholderTextColor="#999"
-          autoCorrect={false}
-          autoCapitalize="none"
-        />
-      </View>
-
-      {/* Employee Count */}
-      <View style={styles.countContainer}>
-        <Text style={styles.countText}>
-          {filteredEmployees.length} {filteredEmployees.length === 1 ? 'Employee' : 'Employees'}
-          {searchQuery ? ` (filtered from ${employees.length} total)` : ''}
-        </Text>
-      </View>
-
-      {/* Employee List */}
       <ScrollView 
         style={styles.scrollContainer}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={Platform.OS !== 'web'}
-        bounces={Platform.OS !== 'web'}
-        scrollEnabled={true}
+        showsVerticalScrollIndicator={true}
         nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
+        bounces={Platform.OS !== 'web'}
+        scrollEnabled={true}
       >
-        {filteredEmployees.map((employee) => (
-          <EmployeeCard key={employee.user_id} employee={employee} />
-        ))}
-        {filteredEmployees.length === 0 && (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {searchQuery ? 'No employees found matching your search.' : 'No employees found.'}
-            </Text>
+        {/* Admin Info */}
+        {adminProfile && (
+          <View style={styles.adminInfo}>
+            <Text style={styles.adminName}>Welcome, {adminProfile.name || 'Admin'}</Text>
+            <Text style={styles.adminRole}>{adminProfile.role_name || adminProfile.role || 'Admin'}</Text>
           </View>
         )}
+
+        {/* Search Section */}
+        <View style={styles.searchSection}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search users by name, email, or role..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          <Text style={styles.searchResults}>
+            {filteredUsers.length} of {allUsers.length} users
+          </Text>
+        </View>
+
+        {/* Users List */}
+        <View style={styles.usersSection}>
+          <Text style={styles.sectionTitle}>All Users</Text>
+          
+          {filteredUsers.length === 0 ? (
+            <Text style={styles.emptyText}>
+              {searchQuery ? 'No users found matching your search' : 'No users found'}
+            </Text>
+          ) : (
+            <View style={styles.usersContainer}>
+              {filteredUsers.map((item) => (
+                <TouchableOpacity 
+                  key={item.id || item.email}
+                  style={styles.userItem}
+                  onPress={() => handleUserSelect(item)}
+                >
+                  <View style={styles.userInfo}>
+                    <Text style={styles.userName}>{item.name || 'No Name'}</Text>
+                    <Text style={styles.userRole}>{item.role_name || item.role || 'No Role'}</Text>
+                    <Text style={styles.userEmail}>{item.email || 'No Email'}</Text>
+                  </View>
+                  <View style={styles.userActions}>
+                    <Text style={styles.editIcon}>✏️</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Extra content to ensure scrolling */}
+        <View style={styles.extraContent}>
+          <Text style={styles.extraContentText}>
+            📊 Dashboard Statistics
+          </Text>
+          <View style={styles.statsContainer}>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{allUsers.length}</Text>
+              <Text style={styles.statLabel}>Total Users</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{filteredUsers.length}</Text>
+              <Text style={styles.statLabel}>Filtered Results</Text>
+            </View>
+          </View>
+        </View>
       </ScrollView>
 
-      {/* Employee Detail Modal */}
+      {/* User Details Modal */}
       <Modal
-        visible={isModalVisible}
+        visible={showUserModal}
         animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={closeModal}
+        onRequestClose={() => setShowUserModal(false)}
       >
-        <SafeAreaView style={styles.modalContainer}>
-          {/* Modal Header */}
+        <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity style={styles.closeButton} onPress={closeModal}>
+            <Text style={styles.modalTitle}>
+              {editing ? 'Edit User' : 'User Details'}
+            </Text>
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={() => setShowUserModal(false)}
+            >
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Employee Details</Text>
-            {!editing ? (
-              <TouchableOpacity style={styles.editButton} onPress={handleEdit}>
-                <Text style={styles.editButtonText}>Edit</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.editActions}>
-                <TouchableOpacity 
-                  style={[styles.actionButton, styles.cancelButton]} 
-                  onPress={handleCancel}
-                  disabled={saving}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.actionButton, styles.saveButton]} 
-                  onPress={handleSave}
-                  disabled={saving}
-                >
-                  <Text style={styles.saveButtonText}>
-                    {saving ? 'Saving...' : 'Save'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
           </View>
 
-          {/* Modal Content */}
-          <ScrollView 
-            style={styles.modalScrollContainer}
-            contentContainerStyle={styles.modalScrollContent}
-            showsVerticalScrollIndicator={true}
-          >
-            {selectedEmployee && (
-              <>
-                {/* Basic Information */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Basic Information</Text>
-                  
-                  <ReadOnlyField label="User ID" value={selectedEmployee.user_id} />
-                  <ReadOnlyField label="Email" value={selectedEmployee.email} />
-                  <ReadOnlyField label="Role" value={selectedEmployee.role_name} />
-                  
-                  {editing ? (
-                    <EditableField
-                      label="Full Name"
-                      value={editedEmployee.name}
-                      onChangeText={(text) => handleInputChange('name', text)}
-                      placeholder="Enter full name"
-                      fieldKey="name_field"
-                    />
-                  ) : (
-                    <ReadOnlyField label="Full Name" value={selectedEmployee.name} />
-                  )}
-                  
-                  {editing ? (
-                    <EditableField
-                      label="Designation"
-                      value={editedEmployee.designation}
-                      onChangeText={(text) => handleInputChange('designation', text)}
-                      placeholder="Enter designation"
-                      fieldKey="designation_field"
-                    />
-                  ) : (
-                    <ReadOnlyField label="Designation" value={selectedEmployee.designation} />
-                  )}
-                </View>
-
-                {/* Contact Information */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Contact Information</Text>
-                  
-                  {editing ? (
-                    <>
-                      <EditableField
-                        label="Mobile Number"
-                        value={editedEmployee.mobile_no}
-                        onChangeText={(text) => handleInputChange('mobile_no', text)}
-                        placeholder="Enter mobile number"
-                        keyboardType="phone-pad"
-                        fieldKey="mobile_no_field"
-                      />
-                      <EditableField
-                        label="Secondary Mobile"
-                        value={editedEmployee.secondary_mobile_no}
-                        onChangeText={(text) => handleInputChange('secondary_mobile_no', text)}
-                        placeholder="Enter secondary mobile number"
-                        keyboardType="phone-pad"
-                        fieldKey="secondary_mobile_no_field"
-                      />
-                      <EditableField
-                        label="Personal Email"
-                        value={editedEmployee.personal_email}
-                        onChangeText={(text) => handleInputChange('personal_email', text)}
-                        placeholder="Enter personal email"
-                        keyboardType="email-address"
-                        fieldKey="personal_email_field"
-                      />
-                      <EditableField
-                        label="Official Email"
-                        value={editedEmployee.official_email}
-                        onChangeText={(text) => handleInputChange('official_email', text)}
-                        placeholder="Enter official email"
-                        keyboardType="email-address"
-                        fieldKey="official_email_field"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <ReadOnlyField label="Mobile Number" value={selectedEmployee.mobile_no} />
-                      <ReadOnlyField label="Secondary Mobile" value={selectedEmployee.secondary_mobile_no} />
-                      <ReadOnlyField label="Personal Email" value={selectedEmployee.personal_email} />
-                      <ReadOnlyField label="Official Email" value={selectedEmployee.official_email} />
-                    </>
-                  )}
-                </View>
-
-                {/* Personal Information */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Personal Information</Text>
-                  
-                  {editing ? (
-                    <>
-                      <View style={styles.fieldContainer}>
-                        <Text style={styles.fieldLabel}>Date of Birth</Text>
-                        <TextInput
-                          key="date_of_birth_field"
-                          style={styles.input}
-                          value={formatDateForInput(editedEmployee.date_of_birth)}
-                          onChangeText={(text) => handleInputChange('date_of_birth', text)}
-                          placeholder="YYYY-MM-DD"
-                          autoCorrect={false}
-                          autoCapitalize="none"
-                          blurOnSubmit={true}
-                        />
-                      </View>
-                      <EditableField
-                        label="Nationality"
-                        value={editedEmployee.nationality}
-                        onChangeText={(text) => handleInputChange('nationality', text)}
-                        placeholder="Enter nationality"
-                        fieldKey="nationality_field"
-                      />
-                      <EditableField
-                        label="National ID (NID)"
-                        value={editedEmployee.nid_no}
-                        onChangeText={(text) => handleInputChange('nid_no', text)}
-                        placeholder="Enter NID number"
-                        fieldKey="nid_no_field"
-                      />
-                      <EditableField
-                        label="Passport Number"
-                        value={editedEmployee.passport_no}
-                        onChangeText={(text) => handleInputChange('passport_no', text)}
-                        placeholder="Enter passport number"
-                        fieldKey="passport_no_field"
-                      />
-                      <EditableField
-                        label="Current Address"
-                        value={editedEmployee.current_address}
-                        onChangeText={(text) => handleInputChange('current_address', text)}
-                        placeholder="Enter current address"
-                        multiline={true}
-                        fieldKey="current_address_field"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <ReadOnlyField label="Date of Birth" value={formatDate(selectedEmployee.date_of_birth)} />
-                      <ReadOnlyField label="Nationality" value={selectedEmployee.nationality} />
-                      <ReadOnlyField label="National ID (NID)" value={selectedEmployee.nid_no} />
-                      <ReadOnlyField label="Passport Number" value={selectedEmployee.passport_no} />
-                      <ReadOnlyField label="Current Address" value={selectedEmployee.current_address} />
-                    </>
-                  )}
-                </View>
-
-                {/* System Information */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>System Information</Text>
-                  <ReadOnlyField label="Department" value={selectedEmployee.department_name} />
-                  <ReadOnlyField 
-                    label="First Login Status" 
-                    value={selectedEmployee.is_first_login ? 'Pending' : 'Completed'} 
-                  />
-                  <ReadOnlyField 
-                    label="Account Created" 
-                    value={formatDate(selectedEmployee.created_at)} 
-                  />
-                  <ReadOnlyField 
-                    label="Last Updated" 
-                    value={formatDate(selectedEmployee.updated_at)} 
-                  />
-                </View>
-
-                {/* Bottom spacing */}
-                <View style={styles.bottomPadding} />
-              </>
+          <ScrollView style={styles.modalContent}>
+            {selectedUser && adminProfile && (
+              <ProfileForm
+                profile={selectedUser}
+                editedProfile={editedProfile}
+                onInputChange={handleInputChange}
+                userRole={adminProfile?.role_name || adminProfile?.role || 'admin'}
+                isOwnProfile={selectedUser?.id === adminProfile?.id}
+                editing={editing}
+              />
+            )}
+            {selectedUser && !adminProfile && (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#4a90e2" />
+                <Text style={styles.loadingText}>Loading admin profile...</Text>
+              </View>
             )}
           </ScrollView>
-        </SafeAreaView>
+
+          {selectedUser && adminProfile && (
+            <View style={styles.modalActions}>
+              {editing ? (
+                <>
+                  <TouchableOpacity 
+                    style={styles.cancelButton}
+                    onPress={handleCancelEdit}
+                    disabled={saving}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.saveButton}
+                    onPress={handleSaveUser}
+                    disabled={saving}
+                  >
+                    <Text style={styles.saveButtonText}>
+                      {saving ? 'Saving...' : 'Save Changes'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity 
+                    style={styles.deleteButton}
+                    onPress={() => handleDeleteUser(selectedUser?.id)}
+                    disabled={selectedUser?.id === adminProfile?.id}
+                  >
+                    <Text style={styles.deleteButtonText}>Delete User</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.editButton}
+                    onPress={handleEditUser}
+                  >
+                    <Text style={styles.editButtonText}>Edit User</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          )}
+        </View>
       </Modal>
     </View>
   );
@@ -581,17 +478,60 @@ export default function AdminDashboard() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f8f9fa',
     ...(Platform.OS === 'web' && {
       height: '100vh',
       width: '100%',
       display: 'flex',
       flexDirection: 'column',
-      overflow: 'hidden',
+      overflowX: 'hidden',
+      overflowY: 'auto',
     }),
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#6c757d',
+  },
+  errorContainer: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#dc3545',
+    marginBottom: 10,
+  },
+  errorMessage: {
+    fontSize: 16,
+    color: '#dc3545',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#4a90e2',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 5,
+    marginBottom: 10,
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   header: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#fff',
     paddingTop: 50,
     paddingBottom: 20,
     paddingHorizontal: 20,
@@ -599,58 +539,41 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     flexShrink: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
   },
-  headerContent: {
-    flex: 1,
-  },
-  headerTitle: {
+  title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: 'white',
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginTop: 4,
+    color: '#2c3e50',
   },
   logoutButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 16,
+    backgroundColor: '#dc3545',
+    paddingHorizontal: 15,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 5,
   },
   logoutText: {
-    color: 'white',
+    color: '#fff',
+    fontSize: 14,
     fontWeight: '600',
   },
-  searchContainer: {
-    padding: 16,
-    backgroundColor: 'white',
+  adminInfo: {
+    backgroundColor: '#e8f5e8',
+    padding: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#e9ecef',
     flexShrink: 0,
   },
-  searchInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    backgroundColor: '#fafafa',
+  adminName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#155724',
   },
-  countContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    flexShrink: 0,
-  },
-  countText: {
+  adminRole: {
     fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+    color: '#6c757d',
+    marginTop: 2,
   },
   scrollContainer: {
     flex: 1,
@@ -658,237 +581,236 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' && {
       flex: 1,
       overflow: 'auto',
-      maxHeight: 'calc(100vh - 200px)', // Subtract header + search + count containers
+      maxHeight: 'calc(100vh - 140px)',
       WebkitOverflowScrolling: 'touch',
       scrollbarWidth: 'auto',
-      scrollbarColor: '#888 #f5f5f5',
+      scrollbarColor: '#888 #f8f9fa',
     }),
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 50,
     flexGrow: 1,
+    paddingBottom: 50,
+    minHeight: '100%',
     ...(Platform.OS === 'web' && {
       paddingBottom: 100,
-      minHeight: 'fit-content',
     }),
   },
-  employeeCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  employeeCardContent: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  employeeMainInfo: {
-    flex: 1,
-  },
-  employeeName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  employeeId: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
-    marginBottom: 2,
-  },
-  employeeDesignation: {
-    fontSize: 14,
-    color: '#666',
-  },
-  employeeSecondaryInfo: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  employeeDepartment: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-    marginBottom: 2,
-  },
-  employeeRole: {
-    fontSize: 12,
-    color: '#888',
-    marginBottom: 2,
-  },
-  employeeEmail: {
-    fontSize: 12,
-    color: '#666',
-  },
-  employeeCardArrow: {
-    marginLeft: 12,
-  },
-  arrowText: {
-    fontSize: 20,
-    color: '#ccc',
-    fontWeight: 'bold',
-  },
-  emptyContainer: {
-    padding: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  modalHeader: {
-    backgroundColor: 'white',
-    paddingTop: 10,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  searchSection: {
+    padding: 15,
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#e9ecef',
   },
-  closeButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
-    minWidth: 36,
-    alignItems: 'center',
-  },
-  closeButtonText: {
-    fontSize: 16,
-    color: '#666',
-    fontWeight: 'bold',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    flex: 1,
-    textAlign: 'center',
-  },
-  editButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  editButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  editActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    minWidth: 60,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: '#f0f0f0',
+  searchInput: {
     borderWidth: 1,
     borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    fontSize: 16,
+    backgroundColor: '#f8f9fa',
   },
-  cancelButtonText: {
-    color: '#666',
-    fontWeight: '600',
-    fontSize: 12,
+  searchResults: {
+    fontSize: 14,
+    color: '#6c757d',
+    marginTop: 8,
+    textAlign: 'center',
   },
-  saveButton: {
-    backgroundColor: '#28a745',
-  },
-  saveButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 12,
-  },
-  modalScrollContainer: {
-    flex: 1,
-  },
-  modalScrollContent: {
-    padding: 16,
-  },
-  section: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+  usersSection: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingBottom: 8,
+    color: '#2c3e50',
+    marginBottom: 15,
   },
-  fieldContainer: {
-    marginBottom: 16,
-  },
-  fieldLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#555',
-    marginBottom: 6,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  emptyText: {
     fontSize: 16,
-    backgroundColor: 'white',
+    color: '#6c757d',
+    textAlign: 'center',
+    marginTop: 20,
   },
-  multilineInput: {
-    minHeight: 80,
-    textAlignVertical: 'top',
+  usersContainer: {
+    width: '100%',
   },
-  readOnlyInput: {
+  extraContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 30,
+    backgroundColor: '#fff',
+    marginTop: 20,
+    marginHorizontal: 20,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  extraContentText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  statCard: {
+    alignItems: 'center',
+    padding: 20,
     backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    minWidth: 100,
+  },
+  statNumber: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#4a90e2',
+    marginBottom: 5,
+  },
+  statLabel: {
+    fontSize: 14,
+    color: '#6c757d',
+    textAlign: 'center',
+  },
+  userItem: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
     borderColor: '#e9ecef',
   },
-  readOnlyText: {
+  userInfo: {
+    flex: 1,
+  },
+  userName: {
     fontSize: 16,
-    color: '#333',
+    fontWeight: '600',
+    color: '#2c3e50',
   },
-  bottomPadding: {
-    height: 20,
+  userRole: {
+    fontSize: 14,
+    color: '#6c757d',
+    marginTop: 2,
   },
-}); 
+  userEmail: {
+    fontSize: 12,
+    color: '#6c757d',
+    marginTop: 2,
+  },
+  userActions: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 15,
+  },
+  editIcon: {
+    fontSize: 18,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+  },
+  closeButton: {
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#6c757d',
+    borderRadius: 15,
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalContent: {
+    flex: 1,
+    padding: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+  },
+  editButton: {
+    backgroundColor: '#4a90e2',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flex: 1,
+    marginLeft: 10,
+  },
+  editButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  saveButton: {
+    backgroundColor: '#28a745',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flex: 1,
+    marginLeft: 10,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#6c757d',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flex: 1,
+    marginRight: 10,
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  deleteButton: {
+    backgroundColor: '#dc3545',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flex: 1,
+    marginRight: 10,
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+});

@@ -16,6 +16,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
+import { ProfileEditor } from '../utils/profileEditor';
 
 export default function EmployeeDashboard() {
   const { user, signOut } = useAuth();
@@ -25,9 +26,127 @@ export default function EmployeeDashboard() {
   const [saving, setSaving] = useState(false);
   const [editedProfile, setEditedProfile] = useState({});
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState(false);
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'warning' });
+  const [mobileValidationTimeout, setMobileValidationTimeout] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [imageLoadError, setImageLoadError] = useState(false);
+  
+  // Date picker state
+  const [birthYear, setBirthYear] = useState('');
+  const [birthMonth, setBirthMonth] = useState('');
+  const [birthDay, setBirthDay] = useState('');
+
+  // Function to parse date string into components
+  const parseDateComponents = (dateString) => {
+    if (!dateString) return { year: '', month: '', day: '' };
+    const date = new Date(dateString);
+    return {
+      year: date.getFullYear().toString(),
+      month: (date.getMonth() + 1).toString(), // getMonth() returns 0-11
+      day: date.getDate().toString()
+    };
+  };
+
+  // Function to combine date components into ISO date string
+  const combineDateComponents = (year, month, day) => {
+    if (!year || !month || !day) return '';
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  };
+
+  // Function to get days in a month (handles leap years)
+  const getDaysInMonth = (month, year) => {
+    if (!month || !year) return 31;
+    return new Date(year, month, 0).getDate();
+  };
+
+  // Generate dropdown options
+  const generateYearOptions = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let year = currentYear - 80; year <= currentYear; year++) {
+      years.push({ value: year.toString(), label: year.toString() });
+    }
+    return years.reverse(); // Most recent years first
+  };
+
+  const generateMonthOptions = () => {
+    const months = [
+      { value: '1', label: 'January' },
+      { value: '2', label: 'February' },
+      { value: '3', label: 'March' },
+      { value: '4', label: 'April' },
+      { value: '5', label: 'May' },
+      { value: '6', label: 'June' },
+      { value: '7', label: 'July' },
+      { value: '8', label: 'August' },
+      { value: '9', label: 'September' },
+      { value: '10', label: 'October' },
+      { value: '11', label: 'November' },
+      { value: '12', label: 'December' }
+    ];
+    return months;
+  };
+
+  const generateDayOptions = () => {
+    const maxDays = getDaysInMonth(birthMonth, birthYear);
+    const days = [];
+    for (let day = 1; day <= maxDays; day++) {
+      days.push({ value: day.toString(), label: day.toString() });
+    }
+    return days;
+  };
+
+  // Handle date picker changes
+  const handleDateChange = (component, value) => {
+    let newYear = birthYear;
+    let newMonth = birthMonth;
+    let newDay = birthDay;
+    
+    if (component === 'year') {
+      newYear = value;
+      setBirthYear(value);
+      // If current day is invalid for the new year/month, reset to 1
+      if (newMonth && newDay) {
+        const maxDays = getDaysInMonth(newMonth, value);
+        if (parseInt(newDay) > maxDays) {
+          newDay = '1';
+          setBirthDay('1');
+        }
+      }
+    } else if (component === 'month') {
+      newMonth = value;
+      setBirthMonth(value);
+      // If current day is invalid for the new month, reset to 1
+      if (newYear && newDay) {
+        const maxDays = getDaysInMonth(value, newYear);
+        if (parseInt(newDay) > maxDays) {
+          newDay = '1';
+          setBirthDay('1');
+        }
+      }
+    } else if (component === 'day') {
+      newDay = value;
+      setBirthDay(value);
+    }
+    
+    // Update the editedProfile with the combined date
+    const combinedDate = combineDateComponents(newYear, newMonth, newDay);
+    if (combinedDate) {
+      setEditedProfile(prev => ({
+        ...prev,
+        date_of_birth: combinedDate
+      }));
+    }
+  };
+
+  // Function to show toast notifications
+  const showToast = (message, type = 'warning') => {
+    setToast({ visible: true, message, type });
+    setTimeout(() => {
+      setToast({ visible: false, message: '', type: 'warning' });
+    }, 4000);
+  };
 
   // Function to clean up malformed URLs in database
   const cleanupMalformedUrl = async () => {
@@ -38,7 +157,7 @@ export default function EmployeeDashboard() {
         
         // Update database to remove malformed photo_url
         const { error } = await supabase
-          .from('users')
+          .from('user_profiles')
           .update({ photo_url: null })
           .eq('id', userProfile.id);
         
@@ -59,13 +178,37 @@ export default function EmployeeDashboard() {
     fetchUserProfile();
   }, []);
 
-  // Auto-cleanup malformed URLs when profile is loaded
   useEffect(() => {
-    if (userProfile?.photo_url && userProfile.photo_url.includes('blob:')) {
-      console.log('🔍 Detected malformed URL, cleaning up automatically...');
-      cleanupMalformedUrl();
+    if (userProfile) {
+      setEditedProfile(userProfile);
+      
+      // Initialize date picker components
+      const dateComponents = parseDateComponents(userProfile.date_of_birth);
+      setBirthYear(dateComponents.year);
+      setBirthMonth(dateComponents.month);
+      setBirthDay(dateComponents.day);
+      
+      // Removed automatic testDeleteImage call - this was deleting images!
+      // if (userProfile.photo_url) {
+      //   testDeleteImage(userProfile.photo_url);
+      // }
     }
   }, [userProfile]);
+
+  // Cleanup mobile validation timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (mobileValidationTimeout) {
+        clearTimeout(mobileValidationTimeout);
+      }
+    };
+  }, [mobileValidationTimeout]);
+
+  // Auto-cleanup malformed URLs when profile is loaded
+  useEffect(() => {
+    // Removed automatic cleanupMalformedUrl call - this was removing photo URLs!
+    // cleanupMalformedUrl();
+  }, [userProfile?.photo_url]);
 
   // Reset image error state when user profile photo URL changes
   useEffect(() => {
@@ -121,129 +264,64 @@ export default function EmployeeDashboard() {
   };
 
   const handleSave = async () => {
+    console.log('🔥 handleSave function called');
+    console.log('📊 Current userProfile:', userProfile);
+    console.log('✏️ Current editedProfile:', editedProfile);
+    
+    setSaving(true);
+    
     try {
-      setSaving(true);
+      // Get current user's role from profile
+      const currentUserRole = userProfile.role_name || userProfile.role || 'employee';
+      console.log('👤 Current user role:', currentUserRole);
       
-      // Validate required fields
-      if (!editedProfile.name || !editedProfile.name.trim()) {
-        Alert.alert('Validation Error', 'Name is required');
-        return;
-      }
-
-      // Prepare update data (exclude read-only fields)
-      const updateData = {
-        name: editedProfile.name?.trim(),
-        mobile_no: editedProfile.mobile_no?.trim() || null,
-        secondary_mobile_no: editedProfile.secondary_mobile_no?.trim() || null,
-        personal_email: editedProfile.personal_email?.trim() || null,
-        official_email: editedProfile.official_email?.trim() || null,
-        date_of_birth: editedProfile.date_of_birth || null,
-        nationality: editedProfile.nationality?.trim() || null,
-        nid_no: editedProfile.nid_no?.trim() || null,
-        passport_no: editedProfile.passport_no?.trim() || null,
-        current_address: editedProfile.current_address?.trim() || null,
-        photo_url: editedProfile.photo_url || null,
-        updated_at: new Date().toISOString()
-      };
-
-      // Try multiple update strategies to ensure save works
-      let result = null;
-      let updateMethod = '';
-
-      // Strategy 1: Update by id (most reliable - using UUID primary key)
-      if (userProfile.id) {
-        console.log('Attempting update by id:', userProfile.id);
-        result = await supabase
-          .from('users')
-          .update(updateData)
-          .eq('id', userProfile.id)
-          .select();
-        updateMethod = 'id';
-      }
-
-      // Strategy 2: Update by email if id fails
-      if (result?.error && userProfile.email) {
-        console.log('ID update failed, trying email:', userProfile.email);
-        result = await supabase
-          .from('users')
-          .update(updateData)
-          .eq('email', userProfile.email)
-          .select();
-        updateMethod = 'email';
-      }
-
-      // Strategy 3: Update by user_id if previous methods fail
-      if (result?.error && userProfile.user_id) {
-        console.log('Previous updates failed, trying user_id:', userProfile.user_id);
-        result = await supabase
-          .from('users')
-          .update(updateData)
-          .eq('user_id', userProfile.user_id)
-          .select();
-        updateMethod = 'user_id';
-      }
-
-      console.log(`Update result (${updateMethod}):`, result);
-
-      if (result?.error) {
-        console.error('All update methods failed:', result.error);
-        
-        // Try the custom SQL function as last resort
-        console.log('Attempting custom SQL function update...');
-        const { data: sqlResult, error: sqlError } = await supabase.rpc('update_user_profile', {
-          user_email: userProfile.email,
-          profile_data: updateData
-        });
-        
-        if (sqlError) {
-          console.error('SQL function also failed:', sqlError);
-          Alert.alert('Error', `Failed to update profile: ${result.error.message}\n\nPlease check your internet connection and try again.`);
-          return;
-        } else {
-          console.log('SQL function succeeded:', sqlResult);
-          if (sqlResult.success) {
-            result = { data: [sqlResult.data], error: null };
+      // Use the common ProfileEditor to save the profile
+      const result = await ProfileEditor.saveProfile({
+        originalProfile: userProfile,
+        editedProfile: editedProfile,
+        currentUserRole: currentUserRole,
+        isOwnProfile: true, // Employee is always editing their own profile
+        onSuccess: (updatedProfile) => {
+          console.log('✅ ProfileEditor success callback called');
+          // Update local state immediately
+          setUserProfile(updatedProfile);
+          setEditedProfile(updatedProfile);
+          setEditing(false);
+          
+          // Show success indicator
+          setSaveSuccess(true);
+          setTimeout(() => setSaveSuccess(false), 3000);
+          
+          // Refresh profile data from the database
+          setTimeout(async () => {
+            await fetchUserProfile();
+          }, 1000);
+        },
+        onError: (error) => {
+          console.error('❌ ProfileEditor error callback:', error);
+          
+          // Check if it's a mobile number validation error
+          if (error.message && error.message.includes('mobile number')) {
+            showToast('Please enter a valid mobile number (minimum 7 digits)', 'warning');
           } else {
-            Alert.alert('Error', `SQL function failed: ${sqlResult.error}`);
-            return;
+            // For other errors, show generic alert
+            Alert.alert('Validation Error', error.message || 'An error occurred while saving your profile.');
           }
         }
+      });
+      
+      console.log('📋 ProfileEditor result:', result);
+      
+      // If save was successful, log the updated fields
+      if (result.success) {
+        console.log('🎉 Updated fields:', result.updatedFields);
       }
-
-      if (result?.data && result.data.length > 0) {
-        console.log('Profile updated successfully:', result.data[0]);
-        
-        // Update local state immediately
-        const updatedProfile = { ...userProfile, ...updateData };
-        setUserProfile(updatedProfile);
-        setEditedProfile(updatedProfile);
-        setEditing(false);
-        
-        // Show success indicator
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
-        
-        Alert.alert('Success', 'Profile updated successfully!');
-        
-        // Refresh profile data from the database
-        setTimeout(async () => {
-          await fetchUserProfile();
-        }, 1000);
-        
-      } else {
-        console.warn('No data returned from update operation');
-        Alert.alert('Warning', 'Update may have failed. Please refresh to check if changes were saved.');
-        
-        // Still exit edit mode
-        setEditing(false);
-        
-        // Refresh profile data
-        await fetchUserProfile();
-      }
+      
     } catch (error) {
-      console.error('Error in handleSave:', error);
-      Alert.alert('Error', `Failed to update profile: ${error.message}`);
+      console.error('💥 Unexpected error in handleSave:', error);
+      Alert.alert('Error', 'An unexpected error occurred while saving your profile.');
     } finally {
+      console.log('🏁 handleSave finally block');
       setSaving(false);
     }
   };
@@ -253,7 +331,28 @@ export default function EmployeeDashboard() {
       ...prev,
       [field]: value
     }));
-  }, []);
+    
+    // Real-time validation for mobile number with debouncing
+    if (field === 'mobile_no') {
+      // Clear existing timeout
+      if (mobileValidationTimeout) {
+        clearTimeout(mobileValidationTimeout);
+      }
+      
+      // Only validate if there's actual content
+      if (value && value.trim() !== '') {
+        // Set new timeout to validate after user stops typing
+        const timeoutId = setTimeout(() => {
+          const isValid = ProfileEditor.isValidMobile(value);
+          if (!isValid) {
+            showToast('Please enter a valid mobile number (minimum 7 digits)', 'warning');
+          }
+        }, 1000); // Wait 1 second after user stops typing
+        
+        setMobileValidationTimeout(timeoutId);
+      }
+    }
+  }, [mobileValidationTimeout]);
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Not provided';
@@ -540,7 +639,35 @@ export default function EmployeeDashboard() {
           await deletePreviousImageByUrl(previousPhotoUrl);
         }
         
-        Alert.alert('Success', 'Profile image uploaded successfully! Remember to save your changes.');
+        // Automatically save the photo_url to database
+        console.log('🔄 Auto-saving photo_url to database...');
+        try {
+          const { error: dbError } = await supabase
+            .from('user_profiles')
+            .update({ photo_url: urlData.publicUrl })
+            .eq('id', userProfile.id);
+          
+          if (dbError) {
+            console.error('❌ Error saving photo_url to database:', dbError);
+            // Update userProfile state for immediate display
+            setUserProfile(prev => ({
+              ...prev,
+              photo_url: urlData.publicUrl
+            }));
+            showToast('Image uploaded but not saved to database. Please click Save Changes.', 'warning');
+          } else {
+            console.log('✅ Photo URL saved to database successfully');
+            // Update userProfile state to reflect database changes
+            setUserProfile(prev => ({
+              ...prev,
+              photo_url: urlData.publicUrl
+            }));
+            showToast('Profile image uploaded and saved successfully!', 'success');
+          }
+        } catch (saveError) {
+          console.error('💥 Unexpected error saving to database:', saveError);
+          showToast('Image uploaded but not saved to database. Please click Save Changes.', 'warning');
+        }
       } else {
         console.error('Failed to get public URL');
         Alert.alert('Upload Error', 'Failed to get image URL. Please try again.');
@@ -612,6 +739,58 @@ export default function EmployeeDashboard() {
       </View>
     </View>
   );
+
+  // Custom Dropdown Component for Date Picker
+  const CustomDropdown = ({ label, value, options, onValueChange, placeholder = "Select..." }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    
+    return (
+      <View style={styles.expandableDropdown}>
+        <TouchableOpacity 
+          style={styles.expandableButton}
+          onPress={() => setIsOpen(!isOpen)}
+        >
+          <Text style={[styles.expandableText, !value && styles.expandablePlaceholder]}>
+            {value ? (options.find(opt => opt.value === value)?.label || value) : placeholder}
+          </Text>
+          <Text style={styles.expandableArrow}>{isOpen ? '▲' : '▼'}</Text>
+        </TouchableOpacity>
+        
+        {isOpen && (
+          <View style={styles.expandableContent}>
+            <View style={styles.expandableList}>
+              <ScrollView 
+                style={styles.expandableScrollView}
+                showsVerticalScrollIndicator={true}
+                nestedScrollEnabled={true}
+              >
+                {options.map((option) => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.expandableOption,
+                      option.value === value && styles.expandableOptionSelected
+                    ]}
+                    onPress={() => {
+                      onValueChange(option.value);
+                      setIsOpen(false);
+                    }}
+                  >
+                    <Text style={[
+                      styles.expandableOptionText,
+                      option.value === value && styles.expandableOptionTextSelected
+                    ]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  };
 
   const EditableField = useCallback(({ label, value, onChangeText, placeholder, multiline = false, keyboardType = 'default', fieldKey }) => (
     <View style={styles.fieldContainer}>
@@ -802,16 +981,37 @@ export default function EmployeeDashboard() {
             <>
                               <View style={styles.fieldContainer}>
                   <Text style={styles.fieldLabel}>Date of Birth</Text>
-                  <TextInput
-                    key="date_of_birth"
-                    style={styles.input}
-                    value={formatDateForInput(editedProfile.date_of_birth)}
-                    onChangeText={(text) => handleInputChange('date_of_birth', text)}
-                    placeholder="YYYY-MM-DD"
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                    blurOnSubmit={true}
-                  />
+                  <View style={styles.datePickerContainer}>
+                    <View style={styles.datePickerRow}>
+                      <View style={styles.datePickerColumn}>
+                        <Text style={styles.datePickerLabel}>Day</Text>
+                        <CustomDropdown
+                          value={birthDay}
+                          options={generateDayOptions()}
+                          onValueChange={(value) => handleDateChange('day', value)}
+                          placeholder="Day"
+                        />
+                      </View>
+                      <View style={styles.datePickerColumn}>
+                        <Text style={styles.datePickerLabel}>Month</Text>
+                        <CustomDropdown
+                          value={birthMonth}
+                          options={generateMonthOptions()}
+                          onValueChange={(value) => handleDateChange('month', value)}
+                          placeholder="Month"
+                        />
+                      </View>
+                      <View style={styles.datePickerColumn}>
+                        <Text style={styles.datePickerLabel}>Year</Text>
+                        <CustomDropdown
+                          value={birthYear}
+                          options={generateYearOptions()}
+                          onValueChange={(value) => handleDateChange('year', value)}
+                          placeholder="Year"
+                        />
+                      </View>
+                    </View>
+                  </View>
                 </View>
                                <EditableField
                    label="Nationality"
@@ -897,6 +1097,19 @@ export default function EmployeeDashboard() {
         {/* Bottom spacing */}
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      {/* Toast Notification */}
+      {toast.visible && (
+        <View style={styles.toastContainer}>
+          <View style={[
+            styles.toast, 
+            toast.type === 'warning' && styles.toastWarning,
+            toast.type === 'success' && styles.toastSuccess
+          ]}>
+            <Text style={styles.toastText}>{toast.message}</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -910,7 +1123,8 @@ const styles = StyleSheet.create({
       width: '100%',
       display: 'flex',
       flexDirection: 'column',
-      overflow: 'hidden',
+      overflowX: 'hidden', // Hide horizontal overflow only
+      overflowY: 'auto',   // Allow vertical scrolling
     }),
   },
   header: {
@@ -1193,5 +1407,127 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 6,
     fontStyle: 'italic',
+  },
+  toastContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    zIndex: 1000,
+  },
+  toast: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  toastWarning: {
+    backgroundColor: '#ff9800',
+  },
+  toastSuccess: {
+    backgroundColor: '#4CAF50', // A green color for success
+  },
+  toastText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+    expandableDropdown: {
+    marginBottom: 16,
+  },
+  expandableButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    minHeight: 44,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+  },
+  expandableText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  expandablePlaceholder: {
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  expandableArrow: {
+    fontSize: 16,
+    color: '#666',
+    marginLeft: 8,
+  },
+  expandableContent: {
+    marginTop: 4,
+  },
+  expandableList: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    maxHeight: 300,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  expandableScrollView: {
+    maxHeight: 300,
+  },
+  expandableOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    backgroundColor: 'white',
+    minHeight: 44,
+  },
+  expandableOptionSelected: {
+    backgroundColor: '#e3f2fd',
+    borderBottomColor: '#007AFF',
+  },
+  expandableOptionText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '400',
+  },
+  expandableOptionTextSelected: {
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  datePickerContainer: {
+    marginTop: 8,
+    position: 'relative',
+    zIndex: 1,
+  },
+  datePickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    position: 'relative',
+    zIndex: 1,
+  },
+  datePickerColumn: {
+    flex: 1,
+    marginHorizontal: 5,
+    position: 'relative',
+    zIndex: 1,
+  },
+  datePickerLabel: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 6,
+    textAlign: 'center',
   },
 }); 
