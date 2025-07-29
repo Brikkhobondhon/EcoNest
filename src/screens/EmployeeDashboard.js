@@ -17,9 +17,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
 import { ProfileEditor } from '../utils/profileEditor';
+import AuthChangeForm from '../components/AuthChangeForm';
 
 export default function EmployeeDashboard() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, loading: authLoading, handleEmailConfirmation, checkCurrentEmail } = useAuth();
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -31,6 +32,7 @@ export default function EmployeeDashboard() {
   const [mobileValidationTimeout, setMobileValidationTimeout] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [showAuthChangeForm, setShowAuthChangeForm] = useState(false);
   
   // Date picker state
   const [birthYear, setBirthYear] = useState('');
@@ -148,6 +150,13 @@ export default function EmployeeDashboard() {
     }, 4000);
   };
 
+  // Handle authentication change success
+  const handleAuthChangeSuccess = () => {
+    showToast('Authentication updated successfully!', 'success');
+    // Refresh user profile if needed
+    fetchUserProfile();
+  };
+
   // Function to clean up malformed URLs in database
   const cleanupMalformedUrl = async () => {
     try {
@@ -175,8 +184,22 @@ export default function EmployeeDashboard() {
   };
 
   useEffect(() => {
-    fetchUserProfile();
-  }, []);
+    if (user && user.email) {
+      console.log('User available, fetching profile for:', user.email);
+      fetchUserProfile();
+      
+      // Check if this is after email confirmation
+      const urlParams = new URLSearchParams(window.location.search);
+      const hasEmailConfirmation = urlParams.get('type') === 'email_change';
+      
+      if (hasEmailConfirmation) {
+        console.log('EmployeeDashboard: Detected email confirmation, updating database...');
+        handleEmailConfirmation();
+      }
+    } else {
+      console.log('User not available yet, waiting...');
+    }
+  }, [user]);
 
   useEffect(() => {
     if (userProfile) {
@@ -231,23 +254,118 @@ export default function EmployeeDashboard() {
 
   const fetchUserProfile = async () => {
     try {
+      if (!user || !user.email) {
+        console.error('User or user email not available');
+        setLoading(false);
+        return;
+      }
+      
       setLoading(true);
-      const { data, error } = await supabase
+      console.log('Fetching profile for user:', user.email);
+      
+      // First try to fetch from user_profiles view
+      console.log('Attempting to fetch from user_profiles with email:', user.email);
+      let { data, error } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('email', user.email)
         .single();
       
       if (error) {
-        console.error('Error fetching user profile:', error);
-        Alert.alert('Error', 'Failed to fetch profile data');
+        console.log('Error fetching from user_profiles view:', error);
+        
+        // Debug: Check if user_profiles view has any data
+        console.log('Debugging: Checking user_profiles view...');
+        const { data: viewData, error: viewError } = await supabase
+          .from('user_profiles')
+          .select('id, email, name')
+          .limit(5);
+        
+        if (viewError) {
+          console.error('Error checking user_profiles view:', viewError);
+        } else {
+          console.log('user_profiles view data:', viewData);
+        }
+        
+        // Fallback: try to fetch from users table directly
+        console.log('Trying fallback to users table with email:', user.email);
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select(`
+            *,
+            departments(name, description),
+            user_roles(role_name, display_name)
+          `)
+          .eq('email', user.email)
+          .single();
+        
+        if (userError) {
+          console.error('Error fetching from users table:', userError);
+          
+          // Debug: Check if there are any users in the table
+          console.log('Debugging: Checking if users table has any data...');
+          const { data: allUsers, error: allUsersError } = await supabase
+            .from('users')
+            .select('id, email, name')
+            .limit(5);
+          
+          if (allUsersError) {
+            console.error('Error checking users table:', allUsersError);
+          } else {
+            console.log('Users in table:', allUsers);
+          }
+          
+          // If user doesn't exist in users table, try to create a basic profile
+          console.log('User not found in users table, attempting to create basic profile...');
+          const { data: newUserData, error: createError } = await supabase
+            .from('users')
+            .insert({
+              id: user.id,
+              email: user.email,
+              name: user.email.split('@')[0], // Use email prefix as name
+              role_id: null, // Will be set by admin later
+              department_id: null, // Will be set by admin later
+              is_first_login: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+          
+          if (createError) {
+            console.error('Error creating user profile:', createError);
+            Alert.alert('Error', 'Failed to create profile. Please contact support.');
+            return;
+          }
+          
+          console.log('Created basic user profile:', newUserData);
+          data = {
+            ...newUserData,
+            department_name: null,
+            role_name: null,
+            role_display_name: null
+          };
+        } else {
+          // Transform the data to match the user_profiles view format
+          data = {
+            ...userData,
+            department_name: userData.departments?.name,
+            role_name: userData.user_roles?.role_name,
+            role_display_name: userData.user_roles?.display_name
+          };
+          
+          console.log('Successfully fetched from users table:', data);
+        }
       } else {
-        setUserProfile(data);
-        setEditedProfile(data);
+        console.log('Successfully fetched from user_profiles view:', data);
       }
+      
+      setUserProfile(data);
+      setEditedProfile(data);
+      
     } catch (error) {
       console.error('Error in fetchUserProfile:', error);
-      Alert.alert('Error', 'Failed to fetch profile data');
+      Alert.alert('Error', 'Failed to fetch profile data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -820,13 +938,33 @@ export default function EmployeeDashboard() {
     );
   }
 
-  if (!userProfile) {
+  if (!user) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Loading user...</Text>
+      </View>
+    );
+  }
+
+  if (!userProfile && !loading) {
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>Failed to load profile</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchUserProfile}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
+        <Text style={styles.errorSubtext}>
+          This might be due to an email mismatch or session issue.
+        </Text>
+        <View style={styles.errorButtonContainer}>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchUserProfile}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.retryButton, { backgroundColor: '#dc3545', marginLeft: 12 }]} 
+            onPress={signOut}
+          >
+            <Text style={styles.retryButtonText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -898,6 +1036,29 @@ export default function EmployeeDashboard() {
               </TouchableOpacity>
             </View>
           )}
+        </View>
+
+        {/* Authentication Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Authentication</Text>
+          <View style={styles.authSection}>
+            <View style={styles.authInfo}>
+              <Text style={styles.authLabel}>Login Email</Text>
+              <Text style={styles.authValue}>{user?.email || 'Not available'}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.authChangeButton}
+              onPress={() => setShowAuthChangeForm(true)}
+            >
+              <Text style={styles.authChangeButtonText}>Change Email/Password</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.authChangeButton, { marginTop: 8, backgroundColor: '#6c757d' }]}
+              onPress={checkCurrentEmail}
+            >
+              <Text style={styles.authChangeButtonText}>Check Email Status</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Basic Information Section */}
@@ -1110,6 +1271,13 @@ export default function EmployeeDashboard() {
           </View>
         </View>
       )}
+
+      {/* Authentication Change Form Modal */}
+      <AuthChangeForm
+        visible={showAuthChangeForm}
+        onClose={() => setShowAuthChangeForm(false)}
+        onSuccess={handleAuthChangeSuccess}
+      />
     </View>
   );
 }
@@ -1310,6 +1478,38 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee',
     paddingBottom: 8,
   },
+  authSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  authInfo: {
+    flex: 1,
+  },
+  authLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 4,
+  },
+  authValue: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  authChangeButton: {
+    backgroundColor: '#4a90e2',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginLeft: 16,
+  },
+  authChangeButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   fieldContainer: {
     marginBottom: 16,
   },
@@ -1366,6 +1566,18 @@ const styles = StyleSheet.create({
     color: '#dc3545',
     marginBottom: 20,
     textAlign: 'center',
+  },
+  errorSubtext: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  errorButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   retryButton: {
     backgroundColor: '#007AFF',

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -8,25 +8,88 @@ import {
   TouchableOpacity, 
   RefreshControl,
   Alert,
-  Platform,
-  FlatList
+  Platform
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
+import HRNavigation from '../components/HRNavigation';
+
+// Separate component for user cards to prevent re-renders
+const UserCard = React.memo(({ user }) => (
+  <View style={styles.employeeCard}>
+    <View style={styles.employeeHeader}>
+      <Text style={styles.employeeName}>{user.name || 'N/A'}</Text>
+      <View style={styles.employeeIdContainer}>
+        <Text style={styles.employeeId}>ID: {user.user_id}</Text>
+        {user.department_code && (
+          <Text style={styles.departmentCode}>Dept: {user.department_code}</Text>
+        )}
+      </View>
+    </View>
+    
+    <View style={styles.employeeDetails}>
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>Role:</Text>
+        <Text style={[
+          styles.detailValue,
+          { 
+            color: user.role === 'admin' ? '#dc3545' : 
+                   user.role === 'hr' ? '#007bff' : 
+                   user.role === 'manager' ? '#28a745' : '#6c757d'
+          }
+        ]}>
+          {user.role || user.role_name || 'N/A'}
+        </Text>
+      </View>
+      
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>Department:</Text>
+        <Text style={styles.detailValue}>{user.department_name || 'N/A'}</Text>
+      </View>
+      
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>Designation:</Text>
+        <Text style={styles.detailValue}>{user.designation || 'N/A'}</Text>
+      </View>
+      
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>Email:</Text>
+        <Text style={styles.detailValue}>{user.email || 'N/A'}</Text>
+      </View>
+      
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>Mobile:</Text>
+        <Text style={styles.detailValue}>{user.mobile_no || 'N/A'}</Text>
+      </View>
+      
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>First Login:</Text>
+        <Text style={[
+          styles.detailValue, 
+          { color: user.is_first_login ? '#dc3545' : '#28a745' }
+        ]}>
+          {user.is_first_login ? 'Pending' : 'Completed'}
+        </Text>
+      </View>
+    </View>
+  </View>
+));
 
 export default function HRDashboard() {
   const { user, signOut } = useAuth();
   const [userProfile, setUserProfile] = useState(null);
   const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchUserProfile();
     fetchEmployees();
+    fetchDepartments();
   }, []);
 
-  const fetchUserProfile = async () => {
+  const fetchUserProfile = useCallback(async () => {
     if (user) {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -38,40 +101,82 @@ export default function HRDashboard() {
         setUserProfile(data);
       }
     }
-  };
+  }, [user]);
 
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     try {
       setLoading(true);
+      // Try the new comprehensive view first
+      let { data, error } = await supabase
+        .from('users_with_department_info')
+        .select('*')
+        .order('user_id', { ascending: true });
+      
+      if (error) {
+        console.log('Falling back to employees_with_department_info view:', error.message);
+        // Fallback to employee-specific view
+        const fallbackResult = await supabase
+          .from('employees_with_department_info')
+          .select('*')
+          .order('user_id', { ascending: true });
+        
+        if (fallbackResult.error) {
+          console.log('Falling back to user_profiles view:', fallbackResult.error.message);
+          // Final fallback to user_profiles
+          const finalFallback = await supabase
+            .from('user_profiles')
+            .select('*')
+            .order('user_id', { ascending: true });
+          
+          if (finalFallback.error) {
+            console.error('Error fetching users:', finalFallback.error);
+            Alert.alert('Error', 'Failed to fetch user data');
+            return;
+          }
+          data = finalFallback.data;
+        } else {
+          data = fallbackResult.data;
+        }
+      }
+      
+      console.log('Fetched users:', data?.length || 0, 'users');
+      setEmployees(data || []);
+    } catch (error) {
+      console.error('Error in fetchEmployees:', error);
+      Alert.alert('Error', 'Failed to fetch user data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchDepartments = useCallback(async () => {
+    try {
+      console.log('Fetching departments...');
+      // Try departments table directly since the view doesn't exist
       const { data, error } = await supabase
-        .from('user_profiles')
+        .from('departments')
         .select('*')
         .order('name', { ascending: true });
       
       if (error) {
-        console.error('Error fetching employees:', error);
-        console.error('Error details:', JSON.stringify(error, null, 2));
-        Alert.alert('Error', 'Failed to fetch employee data');
-      } else {
-        console.log('Fetched employees:', data?.length || 0, 'users');
-        console.log('Employee data:', JSON.stringify(data, null, 2));
-        setEmployees(data || []);
+        console.error('Error fetching departments:', error);
+        return;
       }
+      
+      console.log('Departments fetched:', data);
+      setDepartments(data || []);
     } catch (error) {
-      console.error('Error in fetchEmployees:', error);
-      Alert.alert('Error', 'Failed to fetch employee data');
-    } finally {
-      setLoading(false);
+      console.error('Error in fetchDepartments:', error);
     }
-  };
+  }, []);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchEmployees();
     setRefreshing(false);
-  };
+  }, [fetchEmployees]);
 
-  const formatDate = (dateString) => {
+  const formatDate = useCallback((dateString) => {
     if (!dateString) return 'Not provided';
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
@@ -79,94 +184,44 @@ export default function HRDashboard() {
       month: 'short',
       day: 'numeric'
     });
-  };
+  }, []);
 
-  const EmployeeCard = ({ employee }) => (
-    <View style={styles.employeeCard}>
-      <View style={styles.employeeHeader}>
-        <Text style={styles.employeeName}>{employee.name || 'N/A'}</Text>
-        <Text style={styles.employeeId}>ID: {employee.user_id}</Text>
-      </View>
-      
-      <View style={styles.employeeDetails}>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Role:</Text>
-          <Text style={styles.detailValue}>{employee.role_name || 'N/A'}</Text>
-        </View>
-        
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Department:</Text>
-          <Text style={styles.detailValue}>{employee.department_name || 'N/A'}</Text>
-        </View>
-        
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Designation:</Text>
-          <Text style={styles.detailValue}>{employee.designation || 'N/A'}</Text>
-        </View>
-        
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Official Email:</Text>
-          <Text style={styles.detailValue}>{employee.official_email || 'N/A'}</Text>
-        </View>
-        
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Personal Email:</Text>
-          <Text style={styles.detailValue}>{employee.personal_email || 'N/A'}</Text>
-        </View>
-        
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Mobile:</Text>
-          <Text style={styles.detailValue}>{employee.mobile_no || 'N/A'}</Text>
-        </View>
-        
-        {employee.secondary_mobile_no && (
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Secondary Mobile:</Text>
-            <Text style={styles.detailValue}>{employee.secondary_mobile_no}</Text>
-          </View>
-        )}
-        
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Date of Birth:</Text>
-          <Text style={styles.detailValue}>{formatDate(employee.date_of_birth)}</Text>
-        </View>
-        
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Nationality:</Text>
-          <Text style={styles.detailValue}>{employee.nationality || 'N/A'}</Text>
-        </View>
-        
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>NID:</Text>
-          <Text style={styles.detailValue}>{employee.nid_no || 'N/A'}</Text>
-        </View>
-        
-        {employee.passport_no && (
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Passport:</Text>
-            <Text style={styles.detailValue}>{employee.passport_no}</Text>
-          </View>
-        )}
-        
-        {employee.current_address && (
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Address:</Text>
-            <Text style={styles.detailValue}>{employee.current_address}</Text>
-          </View>
-        )}
-        
-                 <View style={styles.detailRow}>
-           <Text style={styles.detailLabel}>First Login:</Text>
-           <Text style={[
-             styles.detailValue, 
-             { color: employee.is_first_login ? '#dc3545' : '#28a745' }
-           ]}>
-             {employee.is_first_login ? 'Pending' : 'Completed'}
-           </Text>
-         </View>
-      </View>
+  // Memoize the render item function to prevent re-renders
+  const renderUserCard = useCallback(({ item }) => (
+    <UserCard user={item} />
+  ), []);
+
+  // Memoize the key extractor
+  const keyExtractor = useCallback((item, index) => item.user_id || index.toString(), []);
+
+  // Prepare data for SectionList
+  const sectionData = useMemo(() => {
+    if (employees.length === 0) return [];
+    
+    // Group employees by role
+    const groupedEmployees = employees.reduce((acc, employee) => {
+      const role = employee.role || employee.role_name || 'Other';
+      if (!acc[role]) {
+        acc[role] = [];
+      }
+      acc[role].push(employee);
+      return acc;
+    }, {});
+
+    // Convert to SectionList format
+    return Object.keys(groupedEmployees).map(role => ({
+      title: role.charAt(0).toUpperCase() + role.slice(1),
+      data: groupedEmployees[role]
+    }));
+  }, [employees]);
+
+  // Render section header
+  const renderSectionHeader = useCallback(({ section }) => (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionHeaderText}>{section.title}</Text>
+      <Text style={styles.sectionHeaderCount}>{section.data.length} employee(s)</Text>
     </View>
-  );
+  ), []);
 
   if (loading) {
     return (
@@ -179,77 +234,69 @@ export default function HRDashboard() {
 
   return (
     <View style={styles.container}>
-      {/* Fixed Header */}
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>HR Dashboard</Text>
-          <Text style={styles.headerSubtitle}>Employee Management</Text>
-        </View>
-        <TouchableOpacity style={styles.logoutButton} onPress={signOut}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Navigation Bar with Hire functionality */}
+      <HRNavigation
+        userProfile={userProfile}
+        departments={departments}
+        onRefreshEmployees={fetchEmployees}
+        onSignOut={signOut}
+      />
 
-      {/* Fixed User Info */}
-      {userProfile && (
-        <View style={styles.userInfo}>
-          <Text style={styles.userInfoText}>Welcome, {userProfile.name}</Text>
-          <Text style={styles.userInfoSubtext}>
-            {userProfile.role_name} • {userProfile.department_name}
+      {/* Content Area */}
+      <ScrollView 
+        style={styles.scrollContainer}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+        keyboardShouldPersistTaps="handled"
+        bounces={Platform.OS !== 'web'}
+        scrollEnabled={true}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {/* Fixed Stats */}
+        <View style={styles.statsContainer}>
+          <Text style={styles.statsText}>Total Users: {employees.length}</Text>
+          <Text style={styles.statsSubtext}>
+            Showing all users (Admin, Manager, HR, Employee) with automatic ID generation
           </Text>
         </View>
-      )}
 
-      {/* Fixed Stats */}
-      <View style={styles.statsContainer}>
-        <Text style={styles.statsText}>Total Employees: {employees.length}</Text>
-        <Text style={styles.statsSubtext}>
-          Showing all users in the system
-        </Text>
-      </View>
-
-      {/* Scrollable Employee List */}
-      {Platform.OS === 'web' ? (
-        <FlatList
-          style={styles.employeeScrollView}
-          contentContainerStyle={styles.employeeScrollContent}
-          data={employees}
-          renderItem={({ item }) => <EmployeeCard employee={item} />}
-          keyExtractor={(item, index) => item.user_id || index.toString()}
-          showsVerticalScrollIndicator={true}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          ListEmptyComponent={
-            <View style={styles.noDataContainer}>
-              <Text style={styles.noDataText}>No employees found</Text>
-            </View>
-          }
-        />
-      ) : (
-        <ScrollView 
-          style={styles.employeeScrollView}
-          contentContainerStyle={styles.employeeScrollContent}
-          showsVerticalScrollIndicator={true}
-          nestedScrollEnabled={true}
-          scrollEventThrottle={16}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        >
-          {employees.length === 0 ? (
-            <View style={styles.noDataContainer}>
-              <Text style={styles.noDataText}>No employees found</Text>
-            </View>
+        {/* Employee List */}
+        <View style={styles.employeeListContainer}>
+          {Platform.OS === 'web' ? (
+            // Web: Use SectionList content structure
+            <>
+              {sectionData.map((section) => (
+                <View key={section.title}>
+                  {renderSectionHeader({ section })}
+                  {section.data.map((user, index) => (
+                    <View key={user.user_id || index}>
+                      <UserCard user={user} />
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </>
           ) : (
-            employees.map((employee, index) => (
-              <View key={employee.user_id || index}>
-                <EmployeeCard employee={employee} />
-              </View>
-            ))
+            // Mobile: Use regular list
+            <>
+              {employees.length === 0 ? (
+                <View style={styles.noDataContainer}>
+                  <Text style={styles.noDataText}>No users found</Text>
+                </View>
+              ) : (
+                employees.map((user, index) => (
+                  <View key={user.user_id || index}>
+                    <UserCard user={user} />
+                  </View>
+                ))
+              )}
+            </>
           )}
-        </ScrollView>
-      )}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -260,7 +307,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
     ...(Platform.OS === 'web' && {
       height: '100vh',
-      overflow: 'hidden',
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      overflowX: 'hidden',
+      overflowY: 'auto',
     }),
   },
   header: {
@@ -272,25 +323,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  employeeScrollView: {
+  scrollContainer: {
     flex: 1,
-    paddingHorizontal: 16,
+    backgroundColor: 'transparent',
     ...(Platform.OS === 'web' && {
-      height: 'auto',
-      maxHeight: '60vh',
-      overflowY: 'auto',
+      flex: 1,
+      overflow: 'auto',
+      maxHeight: 'calc(100vh - 140px)',
+      WebkitOverflowScrolling: 'touch',
+      scrollbarWidth: 'auto',
+      scrollbarColor: '#888 #f5f5f5',
     }),
   },
-  employeeScrollContent: {
-    paddingVertical: 16,
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 50,
+    flexGrow: 1,
+    ...(Platform.OS === 'web' && {
+      paddingBottom: 100,
+    }),
   },
-  webScrollView: {
-    height: '100%',
-    overflow: 'scroll',
-    WebkitOverflowScrolling: 'touch',
-  },
-  webScrollContent: {
-    minHeight: '100%',
+  employeeListContainer: {
+    width: '100%',
   },
   headerContent: {
     flex: 1,
@@ -340,8 +394,8 @@ const styles = StyleSheet.create({
   statsContainer: {
     backgroundColor: 'white',
     padding: 16,
-    marginHorizontal: 16,
     marginTop: 12,
+    marginBottom: 12,
     borderRadius: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -386,6 +440,10 @@ const styles = StyleSheet.create({
     color: '#333',
     flex: 1,
   },
+  employeeIdContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   employeeId: {
     fontSize: 14,
     color: '#666',
@@ -393,6 +451,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
+  },
+  departmentCode: {
+    fontSize: 14,
+    color: '#666',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginLeft: 8,
   },
   employeeDetails: {
     gap: 8,
@@ -436,5 +503,192 @@ const styles = StyleSheet.create({
   noDataText: {
     fontSize: 16,
     color: '#666',
+  },
+  actionContainer: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  hireButton: {
+    backgroundColor: '#28a745',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hireButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  hireButtonDisabled: {
+    backgroundColor: '#a7a7a7',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContainer: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    width: '90%',
+    maxWidth: 450,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  closeButton: {
+    padding: 8,
+  },
+  closeButtonText: {
+    fontSize: 24,
+    color: '#666',
+  },
+  modalContent: {
+    padding: 16,
+    flex: 1,
+  },
+  formLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 8,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    fontSize: 16,
+    backgroundColor: '#f9f9f9',
+  },
+  dropdownContainer: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  dropdownList: {
+    maxHeight: 150,
+  },
+  dropdownOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  dropdownOptionSelected: {
+    backgroundColor: '#e0f7fa',
+    borderLeftWidth: 4,
+    borderLeftColor: '#007AFF',
+  },
+  dropdownOptionText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  dropdownOptionTextSelected: {
+    fontWeight: 'bold',
+    color: '#007AFF',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  cancelButton: {
+    backgroundColor: '#dc3545',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  dropdownLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  dropdownLoadingText: {
+    marginLeft: 8,
+    color: '#555',
+  },
+  dropdownEmpty: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  dropdownEmptyText: {
+    color: '#888',
+    fontSize: 14,
+  },
+  debugContainer: {
+    backgroundColor: '#f0f0f0',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  debugTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  debugText: {
+    fontSize: 13,
+    color: '#555',
+    marginBottom: 4,
+  },
+  sectionHeader: {
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sectionHeaderText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#495057',
+  },
+  sectionHeaderCount: {
+    fontSize: 14,
+    color: '#6c757d',
+    backgroundColor: '#e9ecef',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
 }); 

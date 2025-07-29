@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -17,7 +17,7 @@ import { supabase } from '../config/supabase';
 import { ProfileEditor } from '../utils/profileEditor';
 import { ProfileForm } from '../components/ProfileForm';
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ navigation }) {
   const { user, signOut } = useAuth();
   const [adminProfile, setAdminProfile] = useState(null);
   const [allUsers, setAllUsers] = useState([]);
@@ -31,6 +31,16 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState(null);
   const [debugInfo, setDebugInfo] = useState([]);
+  const profileFormRef = useRef(null);
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'warning' });
+
+  // Function to show toast notifications
+  const showToast = (message, type = 'warning') => {
+    setToast({ visible: true, message, type });
+    setTimeout(() => {
+      setToast({ visible: false, message: '', type: 'warning' });
+    }, 4000);
+  };
 
   // Add debug logging
   const addDebugInfo = (message) => {
@@ -109,15 +119,25 @@ export default function AdminDashboard() {
       addDebugInfo('Fetching all users...');
       setLoading(true);
       
-      const { data, error } = await supabase
+      // Try the new comprehensive view first
+      let { data, error } = await supabase
+        .from('users_with_department_info')
+        .select('*')
+        .order('user_id', { ascending: true });
+      
+      if (error) {
+        addDebugInfo(`Error fetching from users_with_department_info: ${error.message}`);
+        
+        // Fallback to user_profiles
+        const fallbackResult = await supabase
         .from('user_profiles')
         .select('*')
         .order('name', { ascending: true });
       
-      if (error) {
-        addDebugInfo(`Error fetching from user_profiles: ${error.message}`);
+        if (fallbackResult.error) {
+          addDebugInfo(`Error fetching from user_profiles: ${fallbackResult.error.message}`);
         
-        // Try users table
+          // Final fallback to users table
         const { data: userData, error: userError } = await supabase
           .from('users')
           .select('*')
@@ -131,7 +151,11 @@ export default function AdminDashboard() {
           setAllUsers(userData || []);
         }
       } else {
-        addDebugInfo(`Successfully fetched ${data.length} users from user_profiles`);
+          addDebugInfo(`Successfully fetched ${fallbackResult.data.length} users from user_profiles`);
+          setAllUsers(fallbackResult.data || []);
+        }
+      } else {
+        addDebugInfo(`Successfully fetched ${data.length} users from users_with_department_info`);
         setAllUsers(data || []);
       }
     } catch (error) {
@@ -160,11 +184,23 @@ export default function AdminDashboard() {
   const handleSaveUser = async () => {
     if (!selectedUser || !adminProfile) return;
 
+    // Validate form data before saving
+    if (profileFormRef.current && !profileFormRef.current.validateFormData()) {
+      setSaving(false);
+      return; // Stop saving if validation fails
+    }
+
     setSaving(true);
     
     try {
       const adminRole = adminProfile.role_name || adminProfile.role || 'admin';
       const isOwnProfile = selectedUser?.id === adminProfile?.id;
+
+      console.log('=== ADMIN SAVE USER DEBUG ===');
+      console.log('Selected user:', selectedUser);
+      console.log('Edited profile:', editedProfile);
+      console.log('Admin role:', adminRole);
+      console.log('Is own profile:', isOwnProfile);
 
       // Use the common ProfileEditor to save the profile
       const result = await ProfileEditor.saveProfile({
@@ -173,6 +209,8 @@ export default function AdminDashboard() {
         currentUserRole: adminRole,
         isOwnProfile: isOwnProfile,
         onSuccess: (updatedProfile) => {
+          console.log('Profile save success callback triggered');
+          
           // Update selected user
           setSelectedUser(updatedProfile);
           setEditedProfile(updatedProfile);
@@ -185,6 +223,13 @@ export default function AdminDashboard() {
             )
           );
           
+          // Show success message
+          const successMessage = updatedProfile.role_id !== selectedUser.role_id 
+            ? `User role updated successfully! New role: ${updatedProfile.role_name || 'Unknown'}`
+            : 'User profile updated successfully!';
+          
+          showToast(successMessage, 'success');
+          
           // Refresh the full user list
           setTimeout(() => {
             fetchAllUsers();
@@ -192,18 +237,26 @@ export default function AdminDashboard() {
         },
         onError: (error) => {
           console.error('Error saving user:', error);
-          // Error handling is done in ProfileEditor
+          showToast(`Failed to save user: ${error.message}`, 'error');
         }
       });
 
       // Log the result for debugging
       if (result.success) {
         console.log('Admin successfully updated user:', result.updatedFields);
+        
+        // Check if role was updated
+        if (result.updatedFields.includes('role_id')) {
+          console.log('Role was updated in this save operation');
+        }
+      } else {
+        console.error('Save operation failed:', result.error);
+        showToast(`Save failed: ${result.error}`, 'error');
       }
 
     } catch (error) {
       console.error('Unexpected error in handleSaveUser:', error);
-      Alert.alert('Error', 'An unexpected error occurred while saving the user profile.');
+      showToast(`Unexpected error: ${error.message}`, 'error');
     } finally {
       setSaving(false);
     }
@@ -302,15 +355,32 @@ export default function AdminDashboard() {
 
   return (
     <View style={styles.container}>
+      {/* Toast Notification */}
+      {toast.visible && (
+        <View style={styles.toastOverlay}>
+          <View style={[styles.toast, styles[`toast${toast.type.charAt(0).toUpperCase() + toast.type.slice(1)}`]]}>
+            <Text style={styles.toastText}>{toast.message}</Text>
+          </View>
+        </View>
+      )}
+
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Admin Dashboard</Text>
-        <TouchableOpacity 
-          style={styles.logoutButton}
-          onPress={signOut}
-        >
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            style={styles.settingsButton}
+            onPress={() => navigation.navigate('AdminSettings')}
+          >
+            <Text style={styles.settingsButtonText}>⚙️ Settings</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.logoutButton}
+            onPress={signOut}
+          >
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView 
@@ -413,12 +483,14 @@ export default function AdminDashboard() {
           <ScrollView style={styles.modalContent}>
             {selectedUser && adminProfile && (
               <ProfileForm
+                ref={profileFormRef}
                 profile={selectedUser}
                 editedProfile={editedProfile}
                 onInputChange={handleInputChange}
                 userRole={adminProfile?.role_name || adminProfile?.role || 'admin'}
                 isOwnProfile={selectedUser?.id === adminProfile?.id}
                 editing={editing}
+                onValidationError={showToast}
               />
             )}
             {selectedUser && !adminProfile && (
@@ -541,6 +613,22 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  settingsButton: {
+    backgroundColor: '#4a90e2',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  settingsButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   title: {
     fontSize: 24,
@@ -810,6 +898,47 @@ const styles = StyleSheet.create({
   deleteButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  // Toast styles
+  toastOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: 100,
+    zIndex: 9999,
+  },
+  toast: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    maxWidth: '90%',
+    minWidth: 200,
+  },
+  toastWarning: {
+    backgroundColor: '#ff9800',
+  },
+  toastSuccess: {
+    backgroundColor: '#4CAF50',
+  },
+  toastError: {
+    backgroundColor: '#f44336',
+  },
+  toastText: {
+    color: 'white',
+    fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
   },

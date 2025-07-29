@@ -223,9 +223,55 @@ export class ProfileEditor {
       // Prepare update data with role-based filtering
       const updateData = this.filterUpdateData(editedProfile, currentUserRole, isOwnProfile);
 
+      console.log('=== PROFILE SAVE DEBUG ===');
+      console.log('Original profile:', originalProfile);
+      console.log('Edited profile:', editedProfile);
       console.log('Filtered update data:', updateData);
       console.log('User role:', currentUserRole);
       console.log('Is own profile:', isOwnProfile);
+
+      // Special handling for role_id updates
+      if (updateData.role_id) {
+        console.log('Role ID being updated:', updateData.role_id);
+        
+        // Validate that the role_id exists in user_roles table
+        const { data: roleData, error: roleError } = await supabase
+          .from('user_roles')
+          .select('id, role_name, display_name')
+          .eq('id', updateData.role_id)
+          .eq('is_active', true)
+          .single();
+        
+        if (roleError || !roleData) {
+          console.error('Invalid role_id:', updateData.role_id, 'Error:', roleError);
+          const errorMessage = 'Selected role is not valid or has been deactivated';
+          onError && onError(new Error(errorMessage));
+          return { success: false, error: errorMessage };
+        }
+        
+        console.log('Role validation successful:', roleData);
+      }
+
+      // Special handling for department_id updates
+      if (updateData.department_id) {
+        console.log('Department ID being updated:', updateData.department_id);
+        
+        // Validate that the department_id exists in departments table
+        const { data: deptData, error: deptError } = await supabase
+          .from('departments')
+          .select('id, name, description')
+          .eq('id', updateData.department_id)
+          .single();
+        
+        if (deptError || !deptData) {
+          console.error('Invalid department_id:', updateData.department_id, 'Error:', deptError);
+          const errorMessage = 'Selected department is not valid or has been removed';
+          onError && onError(new Error(errorMessage));
+          return { success: false, error: errorMessage };
+        }
+        
+        console.log('Department validation successful:', deptData);
+      }
 
       // Try multiple update strategies to ensure save works
       let result = null;
@@ -298,11 +344,50 @@ export class ProfileEditor {
       if (result?.data && result.data.length > 0) {
         console.log('Profile updated successfully:', result.data[0]);
         
-        const updatedProfile = { ...originalProfile, ...updateData };
+        // If role was updated, fetch the role name for display
+        let updatedProfile = { ...originalProfile, ...updateData };
+        
+        if (updateData.role_id) {
+          try {
+            const { data: roleData } = await supabase
+              .from('user_roles')
+              .select('role_name, display_name')
+              .eq('id', updateData.role_id)
+              .single();
+            
+            if (roleData) {
+              updatedProfile.role_name = roleData.role_name;
+              updatedProfile.role_display_name = roleData.display_name;
+              console.log('Updated profile with role info:', updatedProfile);
+            }
+          } catch (roleError) {
+            console.warn('Could not fetch role name for updated profile:', roleError);
+          }
+        }
+
+        // If department was updated, fetch the department name for display
+        if (updateData.department_id) {
+          try {
+            const { data: deptData } = await supabase
+              .from('departments')
+              .select('name, description')
+              .eq('id', updateData.department_id)
+              .single();
+            
+            if (deptData) {
+              updatedProfile.department_name = deptData.name;
+              updatedProfile.department_description = deptData.description;
+              console.log('Updated profile with department info:', updatedProfile);
+            }
+          } catch (deptError) {
+            console.warn('Could not fetch department name for updated profile:', deptError);
+          }
+        }
         
         // Alert.alert('Success', 'Profile updated successfully!'); // Removed Alert import
         onSuccess && onSuccess(updatedProfile);
         
+        console.log('=== PROFILE SAVE SUCCESS ===');
         return { 
           success: true, 
           data: updatedProfile,
