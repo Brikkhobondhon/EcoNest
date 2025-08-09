@@ -26,7 +26,6 @@ const UserCard = React.memo(({ user }) => (
         )}
       </View>
     </View>
-    
     <View style={styles.employeeDetails}>
       <View style={styles.detailRow}>
         <Text style={styles.detailLabel}>Role:</Text>
@@ -41,27 +40,22 @@ const UserCard = React.memo(({ user }) => (
           {user.role || user.role_name || 'N/A'}
         </Text>
       </View>
-      
       <View style={styles.detailRow}>
         <Text style={styles.detailLabel}>Department:</Text>
         <Text style={styles.detailValue}>{user.department_name || 'N/A'}</Text>
       </View>
-      
       <View style={styles.detailRow}>
         <Text style={styles.detailLabel}>Designation:</Text>
         <Text style={styles.detailValue}>{user.designation || 'N/A'}</Text>
       </View>
-      
       <View style={styles.detailRow}>
         <Text style={styles.detailLabel}>Email:</Text>
         <Text style={styles.detailValue}>{user.email || 'N/A'}</Text>
       </View>
-      
       <View style={styles.detailRow}>
         <Text style={styles.detailLabel}>Mobile:</Text>
         <Text style={styles.detailValue}>{user.mobile_no || 'N/A'}</Text>
       </View>
-      
       <View style={styles.detailRow}>
         <Text style={styles.detailLabel}>First Login:</Text>
         <Text style={[
@@ -139,7 +133,7 @@ export default function HRDashboard() {
         }
       }
       
-      console.log('Fetched users:', data?.length || 0, 'users');
+
       setEmployees(data || []);
     } catch (error) {
       console.error('Error in fetchEmployees:', error);
@@ -151,11 +145,20 @@ export default function HRDashboard() {
 
   const fetchDepartments = useCallback(async () => {
     try {
-      console.log('Fetching departments...');
-      // Try departments table directly since the view doesn't exist
+
+      // Join departments with department_codes to get the codes
       const { data, error } = await supabase
         .from('departments')
-        .select('*')
+        .select(`
+          id,
+          name,
+          description,
+          department_codes!inner (
+            code,
+            is_active
+          )
+        `)
+        .eq('department_codes.is_active', true)
         .order('name', { ascending: true });
       
       if (error) {
@@ -163,8 +166,22 @@ export default function HRDashboard() {
         return;
       }
       
-      console.log('Departments fetched:', data);
-      setDepartments(data || []);
+      // Transform the data to include code directly
+      const departmentsWithCodes = data?.map(dept => {
+        let code = null;
+        if (Array.isArray(dept.department_codes)) {
+          code = dept.department_codes?.[0]?.code || null;
+        } else if (dept.department_codes && typeof dept.department_codes === 'object') {
+          code = dept.department_codes.code || null;
+        }
+        return {
+          ...dept,
+          code
+        };
+      }) || [];
+      
+
+      setDepartments(departmentsWithCodes);
     } catch (error) {
       console.error('Error in fetchDepartments:', error);
     }

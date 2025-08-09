@@ -10,15 +10,19 @@ import {
   Modal,
   FlatList,
   TextInput,
-  Platform
+  Platform,
+  RefreshControl
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
 import { ProfileEditor } from '../utils/profileEditor';
 import { ProfileForm } from '../components/ProfileForm';
+import MetadataMigration from '../components/MetadataMigration';
+import HireEmployeeModal from '../components/HireEmployeeModal';
+import AdminSidebar from '../components/AdminSidebar';
 
 export default function AdminDashboard({ navigation }) {
-  const { user, signOut } = useAuth();
+  const { user, signOut, syncEmailWithDatabase } = useAuth();
   const [adminProfile, setAdminProfile] = useState(null);
   const [allUsers, setAllUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
@@ -33,6 +37,13 @@ export default function AdminDashboard({ navigation }) {
   const [debugInfo, setDebugInfo] = useState([]);
   const profileFormRef = useRef(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'warning' });
+  const [showMigration, setShowMigration] = useState(false);
+  const [syncingEmails, setSyncingEmails] = useState(false);
+  const [departments, setDepartments] = useState([]);
+  const [showHireModal, setShowHireModal] = useState(false);
+  const [hiringLoading, setHiringLoading] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Function to show toast notifications
   const showToast = (message, type = 'warning') => {
@@ -55,6 +66,7 @@ export default function AdminDashboard({ navigation }) {
     if (user) {
       fetchAdminProfile();
       fetchAllUsers();
+      fetchDepartments();
     } else {
       setError('No user found');
       setLoading(false);
@@ -163,6 +175,28 @@ export default function AdminDashboard({ navigation }) {
       setError(`Failed to fetch users: ${error.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchDepartments = async () => {
+    try {
+      addDebugInfo('Fetching departments...');
+      const { data, error } = await supabase
+        .from('departments')
+        .select('*')
+        .order('name', { ascending: true });
+      
+      if (error) {
+        addDebugInfo(`Error fetching departments: ${error.message}`);
+        console.error('Error fetching departments:', error);
+        return;
+      }
+      
+      addDebugInfo(`Successfully fetched ${data?.length || 0} departments`);
+      setDepartments(data || []);
+    } catch (error) {
+      addDebugInfo(`Catch error in fetchDepartments: ${error.message}`);
+      console.error('Error in fetchDepartments:', error);
     }
   };
 
@@ -302,15 +336,92 @@ export default function AdminDashboard({ navigation }) {
     );
   };
 
-
-
-
-
   const handleInputChange = (field, value) => {
     setEditedProfile(prev => ({
       ...prev,
       [field]: value
     }));
+  };
+
+  // Manual email sync function
+  const handleManualEmailSync = async () => {
+    try {
+      setSyncingEmails(true);
+      addDebugInfo('Starting manual email sync...');
+      
+      const success = await syncEmailWithDatabase();
+      
+      if (success) {
+        addDebugInfo('Manual email sync completed successfully');
+        showToast('Email sync completed successfully!', 'success');
+      } else {
+        addDebugInfo('Manual email sync failed');
+        showToast('Email sync failed. Check console for details.', 'error');
+      }
+    } catch (error) {
+      addDebugInfo(`Error in manual email sync: ${error.message}`);
+      showToast(`Email sync error: ${error.message}`, 'error');
+    } finally {
+      setSyncingEmails(false);
+    }
+  };
+
+  // Hiring functions
+  const handleOpenHireModal = () => {
+    setShowHireModal(true);
+  };
+
+  const handleCloseHireModal = () => {
+    setShowHireModal(false);
+  };
+
+  const handleRefreshAfterHire = () => {
+    // Refresh the users list after successful hire
+    fetchAllUsers();
+    showToast('Employee hired successfully! Refreshing user list...', 'success');
+  };
+
+  // Sidebar functions
+  const handleToggleSidebar = () => {
+    setSidebarExpanded(!sidebarExpanded);
+  };
+
+  const handleShowMigration = () => {
+    setShowMigration(true);
+  };
+
+  // Refresh function for pull-to-refresh
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchAllUsers();
+      await fetchDepartments();
+      showToast('Data refreshed successfully!', 'success');
+    } catch (error) {
+      showToast('Failed to refresh data', 'error');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Calculate user counts for sidebar
+  const getUserCounts = () => {
+    const counts = {
+      total: allUsers.length,
+      admin: 0,
+      hr: 0,
+      manager: 0,
+      employee: 0
+    };
+
+    allUsers.forEach(user => {
+      const role = (user.role_name || user.role || '').toLowerCase();
+      if (counts[role] !== undefined) {
+        counts[role]++;
+      }
+    });
+
+    return counts;
   };
 
   // Error boundary
@@ -364,68 +475,93 @@ export default function AdminDashboard({ navigation }) {
         </View>
       )}
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Admin Dashboard</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity 
-            style={styles.settingsButton}
-            onPress={() => navigation.navigate('AdminSettings')}
-          >
-            <Text style={styles.settingsButtonText}>⚙️ Settings</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.logoutButton}
-            onPress={signOut}
-          >
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      {/* Gmail-like Layout */}
+      <View style={styles.gmailLayout}>
+        {/* Sidebar */}
+        <AdminSidebar
+          isExpanded={sidebarExpanded}
+          onToggle={handleToggleSidebar}
+          onHireEmployee={handleOpenHireModal}
+          onSettings={() => navigation.navigate('AdminSettings')}
+          onMigration={handleShowMigration}
+          onEmailSync={handleManualEmailSync}
+          onLogout={signOut}
+          userCounts={getUserCounts()}
+        />
 
-      <ScrollView 
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={true}
-        nestedScrollEnabled={true}
-        keyboardShouldPersistTaps="handled"
-        bounces={Platform.OS !== 'web'}
-        scrollEnabled={true}
-      >
-        {/* Admin Info */}
-        {adminProfile && (
-          <View style={styles.adminInfo}>
-            <Text style={styles.adminName}>Welcome, {adminProfile.name || 'Admin'}</Text>
-            <Text style={styles.adminRole}>{adminProfile.role_name || adminProfile.role || 'Admin'}</Text>
+        {/* Main Content Area */}
+        <View style={styles.mainContent}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <Text style={styles.title}>Admin Dashboard</Text>
+              {adminProfile && (
+                <Text style={styles.welcomeText}>Welcome, {adminProfile.name || 'Admin'}</Text>
+              )}
+            </View>
+            <TouchableOpacity 
+              style={styles.headerLogoutButton}
+              onPress={signOut}
+            >
+              <Text style={styles.headerLogoutIcon}>🚪</Text>
+              <Text style={styles.headerLogoutText}>Logout</Text>
+            </TouchableOpacity>
           </View>
-        )}
 
-        {/* Search Section */}
-        <View style={styles.searchSection}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search users by name, email, or role..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          <Text style={styles.searchResults}>
-            {filteredUsers.length} of {allUsers.length} users
-          </Text>
-        </View>
+          {/* Main Content with ScrollView */}
+          <ScrollView
+            style={styles.mainScrollView}
+            contentContainerStyle={styles.scrollViewContent}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            bounces={Platform.OS !== 'web'}
+            scrollEnabled={true}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+          >
+            {/* Migration Section - Conditional */}
+            {showMigration && (
+              <View style={styles.migrationSection}>
+                <View style={styles.migrationHeader}>
+                  <Text style={styles.migrationTitle}>Metadata Migration</Text>
+                  <TouchableOpacity
+                    style={styles.closeMigrationButton}
+                    onPress={() => setShowMigration(false)}
+                  >
+                    <Text style={styles.closeMigrationText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.migrationContainer}>
+                  <MetadataMigration />
+                </View>
+              </View>
+            )}
 
-        {/* Users List */}
-        <View style={styles.usersSection}>
-          <Text style={styles.sectionTitle}>All Users</Text>
-          
-          {filteredUsers.length === 0 ? (
-            <Text style={styles.emptyText}>
-              {searchQuery ? 'No users found matching your search' : 'No users found'}
-            </Text>
-          ) : (
-            <View style={styles.usersContainer}>
-              {filteredUsers.map((item) => (
+            {/* Search Section */}
+            <View style={styles.searchSection}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search users by name, email, or role..."
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              <Text style={styles.searchResults}>
+                {filteredUsers.length} of {allUsers.length} users
+              </Text>
+            </View>
+
+            {/* Users List Header */}
+            <View style={styles.usersHeader}>
+              <Text style={styles.sectionTitle}>All Users</Text>
+            </View>
+
+            {/* Users List */}
+            {filteredUsers.length > 0 ? (
+              filteredUsers.map((item, index) => (
                 <TouchableOpacity 
-                  key={item.id || item.email}
+                  key={item.id || item.email || index.toString()}
                   style={styles.userItem}
                   onPress={() => handleUserSelect(item)}
                 >
@@ -438,28 +574,50 @@ export default function AdminDashboard({ navigation }) {
                     <Text style={styles.editIcon}>✏️</Text>
                   </View>
                 </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
+              ))
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>
+                  {searchQuery ? 'No users found matching your search' : 'No users found'}
+                </Text>
+              </View>
+            )}
 
-        {/* Extra content to ensure scrolling */}
-        <View style={styles.extraContent}>
-          <Text style={styles.extraContentText}>
-            📊 Dashboard Statistics
-          </Text>
-          <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{allUsers.length}</Text>
-              <Text style={styles.statLabel}>Total Users</Text>
+            {/* Employee Statistics Section */}
+            <View style={styles.extraContent}>
+              <Text style={styles.extraContentText}>
+                📊 Employee Statistics
+              </Text>
+              <View style={styles.statsContainer}>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNumber}>{allUsers.length}</Text>
+                  <Text style={styles.statLabel}>Total Users</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNumber}>{filteredUsers.length}</Text>
+                  <Text style={styles.statLabel}>Filtered Results</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNumber}>{getUserCounts().admin}</Text>
+                  <Text style={styles.statLabel}>Admins</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNumber}>{getUserCounts().hr}</Text>
+                  <Text style={styles.statLabel}>HR Staff</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNumber}>{getUserCounts().manager}</Text>
+                  <Text style={styles.statLabel}>Managers</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNumber}>{getUserCounts().employee}</Text>
+                  <Text style={styles.statLabel}>Employees</Text>
+                </View>
+              </View>
             </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{filteredUsers.length}</Text>
-              <Text style={styles.statLabel}>Filtered Results</Text>
-            </View>
-          </View>
+          </ScrollView>
         </View>
-      </ScrollView>
+      </View>
 
       {/* User Details Modal */}
       <Modal
@@ -543,6 +701,16 @@ export default function AdminDashboard({ navigation }) {
           )}
         </View>
       </Modal>
+
+      {/* Hire Employee Modal */}
+      <HireEmployeeModal
+        visible={showHireModal}
+        onClose={handleCloseHireModal}
+        onHire={handleRefreshAfterHire}
+        departments={departments}
+        loading={hiringLoading}
+        userProfile={adminProfile}
+      />
     </View>
   );
 }
@@ -550,7 +718,7 @@ export default function AdminDashboard({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff',
     ...(Platform.OS === 'web' && {
       height: '100vh',
       width: '100%',
@@ -560,247 +728,308 @@ const styles = StyleSheet.create({
       overflowY: 'auto',
     }),
   },
-  loadingContainer: {
+  gmailLayout: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    flexDirection: 'row',
   },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#6c757d',
-  },
-  errorContainer: {
+  mainContent: {
     flex: 1,
-    padding: 20,
-    backgroundColor: '#f8f9fa',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#dc3545',
-    marginBottom: 10,
-  },
-  errorMessage: {
-    fontSize: 16,
-    color: '#dc3545',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  retryButton: {
-    backgroundColor: '#4a90e2',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 5,
-    marginBottom: 10,
-  },
-  retryText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    backgroundColor: '#fff',
+    flexDirection: 'column',
   },
   header: {
     backgroundColor: '#fff',
-    paddingTop: 50,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    paddingHorizontal: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8eaed',
+    flexShrink: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    flexShrink: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  settingsButton: {
-    backgroundColor: '#4a90e2',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  settingsButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
+  headerLeft: {
+    flex: 1,
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2c3e50',
+    fontWeight: '400',
+    color: '#202124',
+    fontFamily: Platform.OS === 'ios' ? 'SF Pro Display' : 'Roboto',
   },
-  logoutButton: {
-    backgroundColor: '#dc3545',
-    paddingHorizontal: 15,
+  welcomeText: {
+    fontSize: 14,
+    color: '#5f6368',
+    marginTop: 4,
+  },
+  headerLogoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 5,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e8eaed',
+    ...Platform.select({
+      web: {
+        cursor: 'pointer',
+      },
+    }),
   },
-  logoutText: {
-    color: '#fff',
+  headerLogoutIcon: {
+    fontSize: 16,
+    marginRight: 6,
+  },
+  headerLogoutText: {
     fontSize: 14,
-    fontWeight: '600',
+    color: '#d93025',
+    fontWeight: '500',
   },
-  adminInfo: {
-    backgroundColor: '#e8f5e8',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    flexShrink: 0,
-  },
-  adminName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#155724',
-  },
-  adminRole: {
-    fontSize: 14,
-    color: '#6c757d',
-    marginTop: 2,
-  },
-  scrollContainer: {
+  mainScrollView: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: '#fff',
     ...(Platform.OS === 'web' && {
       flex: 1,
       overflow: 'auto',
       maxHeight: 'calc(100vh - 140px)',
       WebkitOverflowScrolling: 'touch',
       scrollbarWidth: 'auto',
-      scrollbarColor: '#888 #f8f9fa',
+      scrollbarColor: '#dadce0 #f1f3f4',
     }),
   },
-  scrollContent: {
+  scrollViewContent: {
     flexGrow: 1,
     paddingBottom: 50,
-    minHeight: '100%',
     ...(Platform.OS === 'web' && {
       paddingBottom: 100,
     }),
   },
+  migrationSection: {
+    backgroundColor: '#fff',
+    marginHorizontal: 24,
+    marginVertical: 16,
+    borderRadius: 8,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e8eaed',
+  },
+  migrationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  migrationTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#202124',
+  },
+  closeMigrationButton: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f1f3f4',
+    borderRadius: 12,
+  },
+  closeMigrationText: {
+    color: '#5f6368',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  migrationContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 16,
+  },
   searchSection: {
-    padding: 15,
+    padding: 24,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
+    borderBottomColor: '#e8eaed',
   },
   searchInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#dadce0',
     borderRadius: 8,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    fontSize: 16,
-    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 14,
+    backgroundColor: '#fff',
+    fontFamily: Platform.OS === 'ios' ? 'SF Pro Text' : 'Roboto',
   },
   searchResults: {
-    fontSize: 14,
-    color: '#6c757d',
+    fontSize: 12,
+    color: '#5f6368',
     marginTop: 8,
-    textAlign: 'center',
+    textAlign: 'right',
   },
-  usersSection: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
+  usersHeader: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+  },
+  emptyContainer: {
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    alignItems: 'center',
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 15,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#202124',
+    marginBottom: 16,
   },
   emptyText: {
-    fontSize: 16,
-    color: '#6c757d',
-    textAlign: 'center',
-    marginTop: 20,
-  },
-  usersContainer: {
-    width: '100%',
-  },
-  extraContent: {
-    paddingHorizontal: 20,
-    paddingVertical: 30,
-    backgroundColor: '#fff',
-    marginTop: 20,
-    marginHorizontal: 20,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  extraContentText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  statCard: {
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    minWidth: 100,
-  },
-  statNumber: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#4a90e2',
-    marginBottom: 5,
-  },
-  statLabel: {
     fontSize: 14,
-    color: '#6c757d',
+    color: '#5f6368',
     textAlign: 'center',
+    marginTop: 32,
+    fontStyle: 'italic',
   },
+
   userItem: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    padding: 15,
+    padding: 16,
     borderRadius: 8,
-    marginBottom: 10,
+    marginBottom: 8,
+    marginHorizontal: 24,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e8eaed',
+    ...Platform.select({
+      web: {
+        cursor: 'pointer',
+      },
+    }),
   },
   userInfo: {
     flex: 1,
   },
   userName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2c3e50',
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#202124',
   },
   userRole: {
-    fontSize: 14,
-    color: '#6c757d',
+    fontSize: 12,
+    color: '#5f6368',
     marginTop: 2,
   },
   userEmail: {
     fontSize: 12,
-    color: '#6c757d',
+    color: '#5f6368',
     marginTop: 2,
   },
   userActions: {
     justifyContent: 'center',
     alignItems: 'center',
-    paddingLeft: 15,
+    paddingLeft: 16,
   },
   editIcon: {
-    fontSize: 18,
+    fontSize: 16,
   },
+  extraContent: {
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    backgroundColor: '#fff',
+    marginTop: 16,
+  },
+  extraContentText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#202124',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  statCard: {
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    minWidth: 100,
+    flex: 1,
+    maxWidth: '48%',
+    borderWidth: 1,
+    borderColor: '#e8eaed',
+    ...(Platform.OS === 'web' && {
+      minWidth: '30%',
+      maxWidth: '32%',
+    }),
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: '400',
+    color: '#1a73e8',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#5f6368',
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#5f6368',
+  },
+  errorContainer: {
+    flex: 1,
+    padding: 24,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '500',
+    color: '#d93025',
+    marginBottom: 8,
+  },
+  errorMessage: {
+    fontSize: 14,
+    color: '#d93025',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#1a73e8',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  logoutButton: {
+    backgroundColor: '#d93025',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 4,
+  },
+  logoutText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  // Modal styles
   modalContainer: {
     flex: 1,
     backgroundColor: '#fff',
@@ -809,96 +1038,96 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingTop: 50,
     paddingBottom: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
+    borderBottomColor: '#e8eaed',
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2c3e50',
+    fontWeight: '500',
+    color: '#202124',
   },
   closeButton: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#6c757d',
-    borderRadius: 15,
+    backgroundColor: '#f1f3f4',
+    borderRadius: 16,
   },
   closeButtonText: {
-    color: '#fff',
+    color: '#5f6368',
     fontSize: 16,
     fontWeight: 'bold',
   },
   modalContent: {
     flex: 1,
-    padding: 20,
+    padding: 24,
   },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
     borderTopWidth: 1,
-    borderTopColor: '#e9ecef',
+    borderTopColor: '#e8eaed',
   },
   editButton: {
-    backgroundColor: '#4a90e2',
-    paddingHorizontal: 20,
+    backgroundColor: '#1a73e8',
+    paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 6,
     flex: 1,
-    marginLeft: 10,
+    marginLeft: 8,
   },
   editButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     textAlign: 'center',
   },
   saveButton: {
-    backgroundColor: '#28a745',
-    paddingHorizontal: 20,
+    backgroundColor: '#34a853',
+    paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 6,
     flex: 1,
-    marginLeft: 10,
+    marginLeft: 8,
   },
   saveButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     textAlign: 'center',
   },
   cancelButton: {
-    backgroundColor: '#6c757d',
-    paddingHorizontal: 20,
+    backgroundColor: '#5f6368',
+    paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 6,
     flex: 1,
-    marginRight: 10,
+    marginRight: 8,
   },
   cancelButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     textAlign: 'center',
   },
   deleteButton: {
-    backgroundColor: '#dc3545',
-    paddingHorizontal: 20,
+    backgroundColor: '#d93025',
+    paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 6,
     flex: 1,
-    marginRight: 10,
+    marginRight: 8,
   },
   deleteButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     textAlign: 'center',
   },
   // Toast styles
@@ -912,18 +1141,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 100,
     zIndex: 9999,
+    pointerEvents: 'none',
   },
   toast: {
     backgroundColor: '#333',
-    borderRadius: 8,
+    borderRadius: 6,
     paddingVertical: 12,
     paddingHorizontal: 16,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+      },
+      default: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3,
+      },
+    }),
     maxWidth: '90%',
     minWidth: 200,
   },
@@ -931,15 +1168,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#ff9800',
   },
   toastSuccess: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#34a853',
   },
   toastError: {
-    backgroundColor: '#f44336',
+    backgroundColor: '#d93025',
   },
   toastText: {
     color: 'white',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
     textAlign: 'center',
   },
 });

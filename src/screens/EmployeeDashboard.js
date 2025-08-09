@@ -17,10 +17,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
 import { ProfileEditor } from '../utils/profileEditor';
-import AuthChangeForm from '../components/AuthChangeForm';
+import AuthChangeModal from '../components/AuthChangeModal';
+
 
 export default function EmployeeDashboard() {
-  const { user, signOut, loading: authLoading, handleEmailConfirmation, checkCurrentEmail } = useAuth();
+  const { user, signOut, loading: authLoading, syncEmailWithDatabase } = useAuth();
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -32,7 +33,8 @@ export default function EmployeeDashboard() {
   const [mobileValidationTimeout, setMobileValidationTimeout] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [showAuthChangeForm, setShowAuthChangeForm] = useState(false);
+  const [showAuthChangeModal, setShowAuthChangeModal] = useState(false);
+
   
   // Date picker state
   const [birthYear, setBirthYear] = useState('');
@@ -187,15 +189,6 @@ export default function EmployeeDashboard() {
     if (user && user.email) {
       console.log('User available, fetching profile for:', user.email);
       fetchUserProfile();
-      
-      // Check if this is after email confirmation
-      const urlParams = new URLSearchParams(window.location.search);
-      const hasEmailConfirmation = urlParams.get('type') === 'email_change';
-      
-      if (hasEmailConfirmation) {
-        console.log('EmployeeDashboard: Detected email confirmation, updating database...');
-        handleEmailConfirmation();
-      }
     } else {
       console.log('User not available yet, waiting...');
     }
@@ -210,11 +203,6 @@ export default function EmployeeDashboard() {
       setBirthYear(dateComponents.year);
       setBirthMonth(dateComponents.month);
       setBirthDay(dateComponents.day);
-      
-      // Removed automatic testDeleteImage call - this was deleting images!
-      // if (userProfile.photo_url) {
-      //   testDeleteImage(userProfile.photo_url);
-      // }
     }
   }, [userProfile]);
 
@@ -226,12 +214,6 @@ export default function EmployeeDashboard() {
       }
     };
   }, [mobileValidationTimeout]);
-
-  // Auto-cleanup malformed URLs when profile is loaded
-  useEffect(() => {
-    // Removed automatic cleanupMalformedUrl call - this was removing photo URLs!
-    // cleanupMalformedUrl();
-  }, [userProfile?.photo_url]);
 
   // Reset image error state when user profile photo URL changes
   useEffect(() => {
@@ -250,8 +232,6 @@ export default function EmployeeDashboard() {
     window.cleanupMalformedUrl = cleanupMalformedUrl;
   }
 
-
-
   const fetchUserProfile = async () => {
     try {
       if (!user || !user.email) {
@@ -263,13 +243,46 @@ export default function EmployeeDashboard() {
       setLoading(true);
       console.log('Fetching profile for user:', user.email);
       
-      // First try to fetch from user_profiles view
-      console.log('Attempting to fetch from user_profiles with email:', user.email);
+      // First, sync emails to ensure database is up to date
+      console.log('EmployeeDashboard: Syncing emails before fetching profile...');
+      try {
+        const syncResult = await syncEmailWithDatabase(user);
+        console.log('EmployeeDashboard: Email sync completed with result:', syncResult);
+        
+        // If sync was successful, wait a moment for database to update
+        if (syncResult) {
+          console.log('EmployeeDashboard: Waiting for database update to propagate...');
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      } catch (syncError) {
+        console.warn('EmployeeDashboard: Email sync failed, continuing with profile fetch:', syncError);
+      }
+      
+      // First try to fetch from user_profiles view with auth email
+      console.log('Attempting to fetch from user_profiles with auth email:', user.email);
       let { data, error } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('email', user.email)
         .single();
+      
+      // If that fails, try with user ID instead of email
+      if (error) {
+        console.log('Failed to fetch with auth email, trying with user ID:', user.id);
+        const { data: idData, error: idError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+        
+        if (!idError && idData) {
+          console.log('Found profile with user ID, email mismatch detected');
+          data = idData;
+          error = null;
+        } else {
+          console.log('Failed to fetch with user ID as well:', idError);
+        }
+      }
       
       if (error) {
         console.log('Error fetching from user_profiles view:', error);
@@ -287,8 +300,8 @@ export default function EmployeeDashboard() {
           console.log('user_profiles view data:', viewData);
         }
         
-        // Fallback: try to fetch from users table directly
-        console.log('Trying fallback to users table with email:', user.email);
+        // Fallback: try to fetch from users table directly with user ID
+        console.log('Trying fallback to users table with user ID:', user.id);
         const { data: userData, error: userError } = await supabase
           .from('users')
           .select(`
@@ -296,7 +309,7 @@ export default function EmployeeDashboard() {
             departments(name, description),
             user_roles(role_name, display_name)
           `)
-          .eq('email', user.email)
+          .eq('id', user.id)
           .single();
         
         if (userError) {
@@ -952,11 +965,51 @@ export default function EmployeeDashboard() {
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>Failed to load profile</Text>
         <Text style={styles.errorSubtext}>
-          This might be due to an email mismatch or session issue.
+          This might be due to an email mismatch between your login and database records. Try "Sync & Retry" to fix this automatically.
         </Text>
         <View style={styles.errorButtonContainer}>
           <TouchableOpacity style={styles.retryButton} onPress={fetchUserProfile}>
             <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.retryButton, { backgroundColor: '#667eea', marginLeft: 12 }]} 
+            onPress={async () => {
+              try {
+                console.log('EmployeeDashboard: Manual email sync triggered from error screen');
+                await syncEmailWithDatabase(user);
+                setTimeout(() => fetchUserProfile(), 1000);
+              } catch (error) {
+                console.error('EmployeeDashboard: Manual email sync failed:', error);
+                fetchUserProfile();
+              }
+            }}
+          >
+            <Text style={styles.retryButtonText}>Sync & Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.retryButton, { backgroundColor: '#28a745', marginLeft: 12 }]} 
+            onPress={async () => {
+              console.log('EmployeeDashboard: Debug info - Auth user:', user);
+              console.log('EmployeeDashboard: Debug info - Auth email:', user?.email);
+              console.log('EmployeeDashboard: Debug info - Auth ID:', user?.id);
+              
+              // Check database directly
+              const { data: dbUser, error: dbError } = await supabase
+                .from('users')
+                .select('id, email, name')
+                .eq('id', user?.id)
+                .single();
+              
+              console.log('EmployeeDashboard: Debug info - Database user:', dbUser);
+              console.log('EmployeeDashboard: Debug info - Database error:', dbError);
+              
+              Alert.alert(
+                'Debug Info', 
+                `Auth Email: ${user?.email}\nAuth ID: ${user?.id}\nDB Email: ${dbUser?.email || 'Not found'}\nDB Error: ${dbError?.message || 'None'}`
+              );
+            }}
+          >
+            <Text style={styles.retryButtonText}>Debug</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.retryButton, { backgroundColor: '#dc3545', marginLeft: 12 }]} 
@@ -1041,23 +1094,24 @@ export default function EmployeeDashboard() {
         {/* Authentication Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Authentication</Text>
+          {console.log('EmployeeDashboard: Rendering auth section - user:', user?.email, 'userProfile:', userProfile?.email)}
           <View style={styles.authSection}>
             <View style={styles.authInfo}>
               <Text style={styles.authLabel}>Login Email</Text>
-              <Text style={styles.authValue}>{user?.email || 'Not available'}</Text>
+              <Text style={styles.authValue}>
+                {user?.email || userProfile?.email || 'Not available'}
+              </Text>
             </View>
-            <TouchableOpacity
-              style={styles.authChangeButton}
-              onPress={() => setShowAuthChangeForm(true)}
-            >
-              <Text style={styles.authChangeButtonText}>Change Email/Password</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.authChangeButton, { marginTop: 8, backgroundColor: '#6c757d' }]}
-              onPress={checkCurrentEmail}
-            >
-              <Text style={styles.authChangeButtonText}>Check Email Status</Text>
-            </TouchableOpacity>
+            
+            <View style={styles.authButtonsContainer}>
+              <TouchableOpacity
+                style={styles.authChangeButton}
+                onPress={() => setShowAuthChangeModal(true)}
+              >
+                <Text style={styles.authChangeButtonText}>Change Email/Password</Text>
+              </TouchableOpacity>
+            </View>
+
           </View>
         </View>
 
@@ -1272,12 +1326,13 @@ export default function EmployeeDashboard() {
         </View>
       )}
 
-      {/* Authentication Change Form Modal */}
-      <AuthChangeForm
-        visible={showAuthChangeForm}
-        onClose={() => setShowAuthChangeForm(false)}
+      {/* Authentication Change Modal */}
+      <AuthChangeModal
+        visible={showAuthChangeModal}
+        onClose={() => setShowAuthChangeModal(false)}
         onSuccess={handleAuthChangeSuccess}
       />
+
     </View>
   );
 }
@@ -1481,11 +1536,16 @@ const styles = StyleSheet.create({
   authSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 8,
   },
   authInfo: {
     flex: 1,
+    marginRight: 16,
+  },
+  authButtonsContainer: {
+    alignItems: 'flex-end',
+    minWidth: 150,
   },
   authLabel: {
     fontSize: 14,
@@ -1503,7 +1563,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
-    marginLeft: 16,
+    minWidth: 140,
+    alignItems: 'center',
   },
   authChangeButtonText: {
     color: '#fff',
@@ -1742,4 +1803,4 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textAlign: 'center',
   },
-}); 
+});

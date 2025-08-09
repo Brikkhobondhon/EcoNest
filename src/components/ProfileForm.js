@@ -1,5 +1,5 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ScrollView, Platform } from 'react-native';
 import { ProfileEditor } from '../utils/profileEditor';
 import { supabase } from '../config/supabase';
 
@@ -595,10 +595,17 @@ const styles = StyleSheet.create({
     marginTop: 2,
     zIndex: 9999,
     elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    ...Platform.select({
+      web: {
+        boxShadow: '0px 2px 3.84px rgba(0, 0, 0, 0.25)',
+      },
+      default: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+      },
+    }),
   },
   dropdownList: {
     maxHeight: 200,

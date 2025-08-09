@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
 
 export default function NoRoleScreen() {
-  const { user, signOut, refreshAuthState } = useAuth();
+  const { user, signOut } = useAuth();
 
   const handleContactAdmin = () => {
     Alert.alert(
@@ -27,70 +27,59 @@ export default function NoRoleScreen() {
 
   const handleLogout = async () => {
     console.log('NoRoleScreen: Logout button pressed!');
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Logout', 
-          style: 'destructive',
-          onPress: async () => {
-            console.log('=== LOGOUT TEST START ===');
-            
-            try {
-              // Get current user before logout
-              const { data: { user: userBefore } } = await supabase.auth.getUser();
-              console.log('Current user before logout:', userBefore?.email || 'No user');
-              
-              // Get current session before logout
-              const { data: { session: sessionBefore } } = await supabase.auth.getSession();
-              console.log('Session exists before logout:', !!sessionBefore);
-              
-              // Use AuthContext signOut function
-              console.log('Attempting to sign out...');
-              await signOut();
-              
-              console.log('Sign out successful');
-              
-              // Force refresh auth state
-              await refreshAuthState();
-              
-              // Wait a moment for state to update
-              await new Promise(resolve => setTimeout(resolve, 100));
-              
-              // Check user after logout
+    
+    // For web platform, use a simple confirmation
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm('Are you sure you want to logout?');
+      if (!confirmed) {
+        console.log('NoRoleScreen: Logout cancelled');
+        return;
+      }
+      
+      try {
+        console.log('NoRoleScreen: Logout confirmed, calling signOut()...');
+        await signOut();
+        console.log('NoRoleScreen: Sign out successful');
+        // Navigation will be handled automatically by AuthContext
+      } catch (error) {
+        console.error('NoRoleScreen: Logout error:', error);
+        alert('Failed to logout. Please try again.');
+      }
+    } else {
+      // For mobile platforms, use Alert
+      console.log('NoRoleScreen: Showing logout confirmation dialog...');
+      Alert.alert(
+        'Logout',
+        'Are you sure you want to logout?',
+        [
+          { 
+            text: 'Cancel', 
+            style: 'cancel',
+            onPress: () => console.log('NoRoleScreen: Logout cancelled')
+          },
+          { 
+            text: 'Logout', 
+            style: 'destructive',
+            onPress: async () => {
               try {
-                const { data: { user: userAfter } } = await supabase.auth.getUser();
-                console.log('User after logout:', userAfter?.email || 'No user');
+                console.log('NoRoleScreen: Logout confirmation pressed');
+                console.log('NoRoleScreen: About to call signOut()...');
+                await signOut();
+                console.log('NoRoleScreen: Sign out successful');
+                // Navigation will be handled automatically by AuthContext
               } catch (error) {
-                console.log('Error getting user after logout:', error.message);
+                console.error('NoRoleScreen: Logout error:', error);
+                Alert.alert(
+                  'Logout Error', 
+                  'Failed to logout. Please try again.',
+                  [{ text: 'OK', style: 'default' }]
+                );
               }
-              
-              // Check session after logout
-              try {
-                const { data: { session: sessionAfter } } = await supabase.auth.getSession();
-                console.log('Session after logout:', sessionAfter ? 'Exists' : 'No session');
-              } catch (error) {
-                console.log('Error getting session after logout:', error.message);
-              }
-              
-              console.log('=== LOGOUT TEST END ===');
-              
-              // The navigation should automatically redirect to login screen
-            } catch (error) {
-              console.error('Test error:', error);
-              console.log('=== LOGOUT TEST END WITH ERROR ===');
-              Alert.alert(
-                'Logout Error', 
-                'Failed to logout. Please try again.',
-                [{ text: 'OK', style: 'default' }]
-              );
             }
           }
-        }
-      ]
-    );
+        ]
+      );
+    }
   };
 
   return (
@@ -150,65 +139,6 @@ export default function NoRoleScreen() {
             onPress={handleLogout}
           >
             <Text style={styles.logoutButtonText}>🚪 Logout</Text>
-          </TouchableOpacity>
-
-          {/* Debug button to check auth state */}
-          <TouchableOpacity 
-            style={[styles.logoutButton, { backgroundColor: '#f39c12', marginTop: 10 }]}
-            onPress={async () => {
-              console.log('=== AUTH STATE CHECK ===');
-              const { data: { user } } = await supabase.auth.getUser();
-              const { data: { session } } = await supabase.auth.getSession();
-              console.log('Current user:', user?.email);
-              console.log('Session exists:', !!session);
-              console.log('User from context:', user?.email);
-              console.log('=== END AUTH CHECK ===');
-            }}
-          >
-            <Text style={[styles.logoutButtonText, { color: '#fff' }]}>🔍 Check Auth State</Text>
-          </TouchableOpacity>
-
-          {/* Direct logout button for testing */}
-          <TouchableOpacity 
-            style={[styles.logoutButton, { backgroundColor: '#e74c3c', marginTop: 10 }]}
-            onPress={async () => {
-              console.log('Direct logout button pressed');
-              try {
-                await supabase.auth.signOut();
-                console.log('Direct logout successful');
-              } catch (error) {
-                console.error('Direct logout error:', error);
-              }
-            }}
-          >
-            <Text style={[styles.logoutButtonText, { color: '#fff' }]}>🚪 Direct Logout (No Confirmation)</Text>
-          </TouchableOpacity>
-
-          {/* Clear session button to go to login */}
-          <TouchableOpacity 
-            style={[styles.logoutButton, { backgroundColor: '#9b59b6', marginTop: 10 }]}
-            onPress={async () => {
-              console.log('Clear session button pressed');
-              try {
-                // Clear all auth data
-                await supabase.auth.signOut();
-                // Also clear any stored session data
-                await supabase.auth.setSession(null);
-                console.log('Session cleared successfully');
-                
-                // Force a state reset by calling refreshAuthState
-                await refreshAuthState();
-                
-                // For web, also reload the page
-                if (typeof window !== 'undefined') {
-                  window.location.reload();
-                }
-              } catch (error) {
-                console.error('Clear session error:', error);
-              }
-            }}
-          >
-            <Text style={[styles.logoutButtonText, { color: '#fff' }]}>🔄 Clear Session & Go to Login</Text>
           </TouchableOpacity>
         </View>
 
