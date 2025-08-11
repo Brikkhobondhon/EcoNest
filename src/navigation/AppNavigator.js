@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import LoginScreen from '../screens/LoginScreen';
 import AdminDashboard from '../screens/AdminDashboard';
 import AdminSettingsScreen from '../screens/AdminSettingsScreen';
+import AdminProfileScreen from '../screens/AdminProfileScreen';
 import HRDashboard from '../screens/HRDashboard';
 import EmployeeDashboard from '../screens/EmployeeDashboard';
 import NoRoleScreen from '../screens/NoRoleScreen';
@@ -73,11 +74,18 @@ export default function AppNavigator() {
               }}
             />
             {userRole === 'admin' && (
-              <Stack.Screen 
-                name="AdminSettings" 
-                component={AdminSettingsScreen}
-                options={{ title: 'Admin Settings' }}
-              />
+              <>
+                <Stack.Screen 
+                  name="AdminSettings" 
+                  component={AdminSettingsScreen}
+                  options={{ title: 'Admin Settings' }}
+                />
+                <Stack.Screen 
+                  name="AdminProfile" 
+                  component={AdminProfileScreen}
+                  options={{ title: 'Admin Profile' }}
+                />
+              </>
             )}
           </>
         )}

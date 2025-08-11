@@ -499,13 +499,30 @@ export default function AdminDashboard({ navigation }) {
                 <Text style={styles.welcomeText}>Welcome, {adminProfile.name || 'Admin'}</Text>
               )}
             </View>
-            <TouchableOpacity 
-              style={styles.headerLogoutButton}
-              onPress={signOut}
-            >
-              <Text style={styles.headerLogoutIcon}>🚪</Text>
-              <Text style={styles.headerLogoutText}>Logout</Text>
-            </TouchableOpacity>
+            <View style={styles.headerRight}>
+              <TouchableOpacity 
+                style={styles.profileIconButton}
+                onPress={() => navigation.navigate('AdminProfile')}
+              >
+                <View style={styles.profileIcon}>
+                  {adminProfile?.name ? (
+                    <Text style={styles.profileIconText}>
+                      {adminProfile.name.charAt(0).toUpperCase()}
+                    </Text>
+                  ) : (
+                    <Text style={styles.profileIconText}>A</Text>
+                  )}
+                </View>
+                <Text style={styles.profileIconLabel}>Profile</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.headerLogoutButton}
+                onPress={signOut}
+              >
+                <Text style={styles.headerLogoutIcon}>🚪</Text>
+                <Text style={styles.headerLogoutText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Main Content with ScrollView */}
@@ -751,6 +768,42 @@ const styles = StyleSheet.create({
   },
   headerLeft: {
     flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  profileIconButton: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    ...Platform.select({
+      web: {
+        cursor: 'pointer',
+      },
+    }),
+  },
+  profileIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  profileIconText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1a73e8',
+  },
+  profileIconLabel: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '500',
   },
   title: {
     fontSize: 24,

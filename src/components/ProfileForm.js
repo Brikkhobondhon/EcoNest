@@ -170,10 +170,7 @@ export const ProfileForm = forwardRef(({
     validateFormData
   }));
 
-  // Test function to verify toast is working
-  const testToast = () => {
-    showToast('This is a test toast message!', 'warning');
-  };
+
 
   // Custom Dropdown Component
   const CustomDropdown = ({ label, value, options, onValueChange, placeholder = "Select...", loading = false }) => {
@@ -309,11 +306,6 @@ export const ProfileForm = forwardRef(({
         <Text style={styles.instructionsText}>
           {ProfileEditor.getEditingInstructions(userRole, isOwnProfile)}
         </Text>
-        {editing && (
-          <TouchableOpacity style={styles.testButton} onPress={testToast}>
-            <Text style={styles.testButtonText}>Test Toast</Text>
-          </TouchableOpacity>
-        )}
       </View>
 
       {/* Basic Information Section */}
@@ -630,18 +622,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
-  testButton: {
-    backgroundColor: '#e74c3c',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-    marginTop: 10,
-  },
-  testButtonText: {
-    color: '#fff',
-    fontSize: 12,
-  },
+
   // Toast styles
   toastOverlay: {
     position: 'absolute',
